@@ -8,6 +8,8 @@
     "start": "next start -p 3000",
     "lint": "eslint",
     "db:push": "drizzle-kit push",
+    "db:check": "tsx db/check-connection.ts",
+    "db:migrate-topics": "tsx db/migrate-topics.ts",
     "db:setup-trgm": "tsx db/setup-trigrams.ts"
   },
   "dependencies": {
