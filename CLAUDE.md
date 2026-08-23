@@ -24,15 +24,28 @@ trustworthy reference site — deep and comprehensive coverage of these subjects
 - Only `/admin` routes require admin. Public reading requires nothing.
   Suggesting requires only being logged in (NOT admin).
 
-## How it will eventually work (full system)
-1. Users or an AI "discovery" agent propose topics → stored in `suggestions`.
-2. An AI "triage" agent (and/or admins) decide accept/reject per topic.
-3. An AI "drafting" agent researches accepted topics and writes a draft article
-   WITH citations, saved as status="review", origin="ai".
-4. Every AI draft goes through a HUMAN REVIEW QUEUE in the admin panel before
-   being published. AI never publishes directly.
-The AI pipeline will run as a SEPARATE worker service (not inside this Next.js
-app), connected to the same database. Not built yet.
+## How the AI pipeline works
+1. Topics we want articles about are queued in the `topics` table — added at
+   `/admin/topics` or in bulk with `npm run topics:import`.
+2. `npm run research` (in `worker/`) claims pending topics one at a time and
+   runs three agents: Research → Writing → QA/fact-checking.
+3. The finished article is saved to `articles` as origin="ai" and
+   status="published" — it goes LIVE immediately, with its citations in
+   `article_references`. There is no human review step. (Changed 2026-08-23;
+   `npm run research -- --review` holds a run in the review queue instead.)
+4. The one exception: an article the QA agent REJECTED, or one whose QA run
+   failed, is saved as status="draft" and never reaches readers. It shows as
+   "Needs human" at `/admin/topics`.
+5. The outcome of each run — QA verdict, confidence, unresolved issue count —
+   is written back onto the topic row.
+
+The `suggestions` table and the site's "suggest a topic" feature are SEPARATE
+from this and unchanged: readers propose topics, an admin triages them by hand.
+No agent touches suggestions yet.
+
+The AI pipeline runs as a SEPARATE worker service (not inside this Next.js app),
+connected to the same database. Its scheduled cron is still disabled — runs are
+triggered manually.
 
 ## Tech stack
 - Next.js (App Router) + TypeScript
@@ -52,6 +65,8 @@ app), connected to the same database. Not built yet.
 - status: draft → review → published → archived
 - Deleting should ARCHIVE (set status="archived"), not hard-delete, so nothing
   is lost.
+- AI articles are published directly by the pipeline (see above); human-written
+  articles still move through the admin panel by hand.
 - Every edit writes a snapshot row to `articleRevisions` (full edit history).
 - origin: "human" | "ai" | "user_suggestion"
 

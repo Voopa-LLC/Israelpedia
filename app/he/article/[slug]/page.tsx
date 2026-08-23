@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { articles, articleReferences } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import Link from "next/link";
 import type { Metadata } from "next";
@@ -55,7 +55,11 @@ export default async function HebrewArticlePage({
   const refs = await db
     .select()
     .from(articleReferences)
-    .where(eq(articleReferences.articleId, article.id));
+    .where(eq(articleReferences.articleId, article.id))
+    // `ordinal` is the footnote number the AI pipeline wrote into the body, so
+    // the list must follow it. Older/handwritten rows have none and fall back
+    // to creation order.
+    .orderBy(asc(articleReferences.ordinal), asc(articleReferences.createdAt));
 
   const published = formatDateHe(article.publishedAt);
   const updated = formatDateHe(article.updatedAt);

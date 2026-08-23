@@ -23,6 +23,9 @@ export default async function AdminLayout({
             <Link href="/admin/new" className="text-ink transition-colors hover:text-techelet">
               New article
             </Link>
+            <Link href="/admin/topics" className="text-ink transition-colors hover:text-techelet">
+              Topic queue
+            </Link>
           </nav>
           <Link
             href="/"

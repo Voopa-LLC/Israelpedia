@@ -1,7 +1,7 @@
 import { requireAdmin } from "@/lib/auth-guard";
 import { db } from "@/db";
 import { articles, articleReferences } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import ArticleEditForm from "./article-edit-form";
@@ -20,7 +20,11 @@ export default async function EditArticlePage({
   const refs = await db
     .select()
     .from(articleReferences)
-    .where(eq(articleReferences.articleId, article.id));
+    .where(eq(articleReferences.articleId, article.id))
+    // `ordinal` is the footnote number the AI pipeline wrote into the body, so
+    // the list must follow it. Older/handwritten rows have none and fall back
+    // to creation order.
+    .orderBy(asc(articleReferences.ordinal), asc(articleReferences.createdAt));
 
   const initialRefs = refs.map((r) => ({
     url: r.url ?? "",
