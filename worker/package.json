@@ -5,14 +5,30 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/worker/src/index.js",
-    "dev": "ts-node --transpile-only src/index.ts"
+    "dev": "ts-node --transpile-only src/index.ts",
+    "topics:import": "ts-node --transpile-only src/import-topics.ts",
+    "research": "ts-node --transpile-only src/run-research.ts",
+    "research:claude": "ts-node --transpile-only src/run-research.ts --claude",
+    "research:gpt": "ts-node --transpile-only src/run-research.ts --gpt",
+    "research:only": "ts-node --transpile-only src/run-research-only.ts",
+    "research:only:claude": "ts-node --transpile-only src/run-research-only.ts --claude",
+    "research:only:gpt": "ts-node --transpile-only src/run-research-only.ts --gpt",
+    "write": "ts-node --transpile-only src/run-write-qa.ts",
+    "write:claude": "ts-node --transpile-only src/run-write-qa.ts --claude",
+    "write:gpt": "ts-node --transpile-only src/run-write-qa.ts --gpt",
+    "qa": "ts-node --transpile-only src/run-qa-only.ts",
+    "qa:claude": "ts-node --transpile-only src/run-qa-only.ts --claude",
+    "qa:gpt": "ts-node --transpile-only src/run-qa-only.ts --gpt"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
+    "@anthropic-ai/sdk": "^0.117.1",
+    "docx": "^9.7.1",
     "dotenv": "^17.0.0",
     "drizzle-orm": "^0.45.2",
+    "jsonrepair": "^3.15.0",
     "node-cron": "^3.0.0",
-    "postgres": "^3.4.9"
+    "postgres": "^3.4.9",
+    "unpdf": "^1.7.0"
   },
   "devDependencies": {
     "@types/node": "^20",
