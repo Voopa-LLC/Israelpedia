@@ -7,6 +7,7 @@
     "start": "node dist/worker/src/index.js",
     "dev": "ts-node --transpile-only src/index.ts",
     "topics:import": "ts-node --transpile-only src/import-topics.ts",
+    "publish:qa": "ts-node --transpile-only src/publish-from-qa.ts",
     "research": "ts-node --transpile-only src/run-research.ts",
     "research:claude": "ts-node --transpile-only src/run-research.ts --claude",
     "research:gpt": "ts-node --transpile-only src/run-research.ts --gpt",
