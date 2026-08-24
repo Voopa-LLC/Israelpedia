@@ -190,8 +190,12 @@ async function insertReferences(
     references.map((ref) => ({
       articleId,
       url: ref.url,
+      // The agents emit ONE label per reference ("Anti-Defamation League, Hamas
+      // Backgrounder") — publisher and title already combined. The article page
+      // renders `title — sourceName`, so filling both columns printed it twice.
+      // It goes in `title`, which is what the page uses for the link text.
       title: ref.sourceName,
-      sourceName: ref.sourceName,
+      sourceName: null,
       accessedAt: ref.accessedAt,
       ordinal: ref.ordinal,
     }))
