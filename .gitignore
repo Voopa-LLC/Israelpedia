@@ -44,3 +44,4 @@ worker/dist
 worker/.env
 worker/output
 *.docx
+israelpedia_backup.dump 

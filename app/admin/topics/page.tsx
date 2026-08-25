@@ -2,13 +2,29 @@
 import { requireAdmin } from "@/lib/auth-guard";
 import { db } from "@/db";
 import { articles, topics } from "@/db/schema";
-import { desc, asc, eq, sql } from "drizzle-orm";
+import { desc, asc, eq, inArray, sql } from "drizzle-orm";
 import Link from "next/link";
 import { addTopics, deleteTopic, retryTopic, skipTopic } from "./actions";
 
 export const metadata = { title: "Topic queue" };
 
 type Status = "pending" | "running" | "done" | "needs_human" | "failed" | "skipped";
+
+/** What the table is showing: one status, everything, or the default digest. */
+type View = Status | "all" | "activity";
+
+/**
+ * Rows per page. The queue routinely holds thousands of topics — rendering all
+ * of them into one table is what made this page take ~10 seconds to open.
+ */
+const PAGE_SIZE = 50;
+
+/**
+ * The default view: every topic the pipeline has already touched. It exists to
+ * keep the enormous `pending` bucket off the landing page — that bucket is a
+ * work list for the worker, not something a human reads top to bottom.
+ */
+const ACTIVITY: Status[] = ["running", "failed", "needs_human", "done"];
 
 const STATUS_LABELS: Record<Status, string> = {
   pending: "Pending",
@@ -50,44 +66,91 @@ function formatDate(d: Date | null) {
   return d ? new Date(d).toLocaleDateString() : "—";
 }
 
+/** A link to one view/page. Page 1 and the default view stay out of the URL. */
+function hrefFor(view: View, page: number): string {
+  const params = new URLSearchParams();
+  if (view !== "activity") params.set("status", view);
+  if (page > 1) params.set("page", String(page));
+  const query = params.toString();
+  return query ? `/admin/topics?${query}` : "/admin/topics";
+}
+
 export default async function TopicsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; added?: string; skipped?: string }>;
+  searchParams: Promise<{ status?: string; page?: string; added?: string; skipped?: string }>;
 }) {
   await requireAdmin();
   const params = await searchParams;
-  const filter = ORDER.includes(params.status as Status) ? (params.status as Status) : null;
 
-  const rows = await db
-    .select({
-      id: topics.id,
-      topic: topics.topic,
-      status: topics.status,
-      priority: topics.priority,
-      attempts: topics.attempts,
-      lastError: topics.lastError,
-      note: topics.note,
-      qaVerdict: topics.qaVerdict,
-      qaIssueCount: topics.qaIssueCount,
-      qaSummary: topics.qaSummary,
-      researchVariant: topics.researchVariant,
-      createdAt: topics.createdAt,
-      completedAt: topics.completedAt,
-      articleSlug: articles.slug,
-      articleStatus: articles.status,
-    })
-    .from(topics)
-    .leftJoin(articles, eq(topics.articleId, articles.id))
-    .where(filter ? eq(topics.status, filter) : undefined)
-    .orderBy(STATUS_ORDER, desc(topics.priority), asc(topics.createdAt));
+  const view: View = ORDER.includes(params.status as Status)
+    ? (params.status as Status)
+    : params.status === "all"
+      ? "all"
+      : "activity";
 
-  const counts = await db
-    .select({ status: topics.status, n: sql<number>`count(*)::int` })
-    .from(topics)
-    .groupBy(topics.status);
+  const requested = Number(params.page);
+  const page = Number.isFinite(requested) && requested >= 1 ? Math.floor(requested) : 1;
+
+  const where =
+    view === "all"
+      ? undefined
+      : view === "activity"
+        ? inArray(topics.status, ACTIVITY)
+        : eq(topics.status, view);
+
+  // The two queries are independent — one round trip to Neon instead of two.
+  const [rows, counts] = await Promise.all([
+    db
+      .select({
+        id: topics.id,
+        topic: topics.topic,
+        status: topics.status,
+        priority: topics.priority,
+        attempts: topics.attempts,
+        lastError: topics.lastError,
+        note: topics.note,
+        qaVerdict: topics.qaVerdict,
+        qaIssueCount: topics.qaIssueCount,
+        qaSummary: topics.qaSummary,
+        researchVariant: topics.researchVariant,
+        createdAt: topics.createdAt,
+        completedAt: topics.completedAt,
+        articleSlug: articles.slug,
+        articleStatus: articles.status,
+      })
+      .from(topics)
+      .leftJoin(articles, eq(topics.articleId, articles.id))
+      .where(where)
+      // `id` last so the sort is total: without a unique tiebreaker two rows
+      // with the same status/priority/created_at could swap places between
+      // requests, hiding one from a page and showing another twice.
+      .orderBy(STATUS_ORDER, desc(topics.priority), asc(topics.createdAt), asc(topics.id))
+      .limit(PAGE_SIZE)
+      .offset((page - 1) * PAGE_SIZE),
+    db
+      .select({ status: topics.status, n: sql<number>`count(*)::int` })
+      .from(topics)
+      .groupBy(topics.status),
+  ]);
+
   const countFor = (s: Status) => counts.find((c) => c.status === s)?.n ?? 0;
   const total = counts.reduce((sum, c) => sum + c.n, 0);
+  const activityTotal = ACTIVITY.reduce((sum, s) => sum + countFor(s), 0);
+  // Every view's total comes out of that one GROUP BY — no extra COUNT query.
+  const matching =
+    view === "all" ? total : view === "activity" ? activityTotal : countFor(view);
+
+  const pageCount = Math.max(1, Math.ceil(matching / PAGE_SIZE));
+  const firstOnPage = (page - 1) * PAGE_SIZE + 1;
+  const lastOnPage = firstOnPage + rows.length - 1;
+
+  const viewLabel =
+    view === "all"
+      ? "topics"
+      : view === "activity"
+        ? "topics with activity"
+        : `${STATUS_LABELS[view].toLowerCase()} topics`;
 
   const added = Number(params.added);
   const skippedCount = Number(params.skipped);
@@ -105,6 +168,10 @@ export default async function TopicsPage({
           listed under <em>Needs human</em> below. Start a run with{" "}
           <code className="rounded bg-paper px-1 py-px text-sm">npm run research</code> in the
           worker folder.
+        </p>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-faint">
+          This view lists the topics the pipeline has already worked on. The full waiting list
+          is under <em>Pending</em>.
         </p>
       </header>
 
@@ -151,16 +218,23 @@ export default async function TopicsPage({
       {/* Status filter */}
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <Link
-          href="/admin/topics"
-          className={`chip ${!filter ? "border-techelet text-techelet" : ""}`}
+          href={hrefFor("activity", 1)}
+          className={`chip ${view === "activity" ? "border-techelet text-techelet" : ""}`}
+          title="Running, failed, needs human and done"
+        >
+          Activity ({activityTotal})
+        </Link>
+        <Link
+          href={hrefFor("all", 1)}
+          className={`chip ${view === "all" ? "border-techelet text-techelet" : ""}`}
         >
           All ({total})
         </Link>
         {ORDER.map((s) => (
           <Link
             key={s}
-            href={`/admin/topics?status=${s}`}
-            className={`chip ${filter === s ? "border-techelet text-techelet" : ""}`}
+            href={hrefFor(s, 1)}
+            className={`chip ${view === s ? "border-techelet text-techelet" : ""}`}
           >
             {STATUS_LABELS[s]} ({countFor(s)})
           </Link>
@@ -182,9 +256,6 @@ export default async function TopicsPage({
           <tbody>
             {rows.map((t) => {
               const status = t.status as Status;
-              const doRetry = retryTopic.bind(null, t.id);
-              const doSkip = skipTopic.bind(null, t.id);
-              const doDelete = deleteTopic.bind(null, t.id);
               const detail = t.lastError ?? t.note;
 
               return (
@@ -239,22 +310,31 @@ export default async function TopicsPage({
                     {formatDate(t.completedAt ?? t.createdAt)}
                   </td>
                   <td className="px-4 py-3">
+                    {/*
+                      The topic id travels as a hidden field, NOT as a bound
+                      argument (`retryTopic.bind(null, t.id)`). See the note on
+                      `topicId()` in actions.ts — binding costs a full Flight
+                      render per row and was the main reason this page hung.
+                    */}
                     <div className="flex items-center justify-end gap-3">
                       {status !== "pending" && status !== "running" && (
-                        <form action={doRetry}>
+                        <form action={retryTopic}>
+                          <input type="hidden" name="id" value={t.id} />
                           <button type="submit" className="font-medium text-azure hover:text-techelet">
                             Re-queue
                           </button>
                         </form>
                       )}
                       {status === "pending" && (
-                        <form action={doSkip}>
+                        <form action={skipTopic}>
+                          <input type="hidden" name="id" value={t.id} />
                           <button type="submit" className="font-medium text-muted hover:text-ink">
                             Skip
                           </button>
                         </form>
                       )}
-                      <form action={doDelete}>
+                      <form action={deleteTopic}>
+                        <input type="hidden" name="id" value={t.id} />
                         <button
                           type="submit"
                           className="font-medium text-[#b3261e] transition-opacity hover:opacity-75"
@@ -270,15 +350,65 @@ export default async function TopicsPage({
             {rows.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-4 py-10 text-center text-muted">
-                  {filter
-                    ? `No ${STATUS_LABELS[filter].toLowerCase()} topics.`
-                    : "The queue is empty — add topics above, or import a list with `npm run topics:import`."}
+                  {page > 1 ? (
+                    <>
+                      Nothing on page {page}.{" "}
+                      <Link
+                        href={hrefFor(view, 1)}
+                        className="font-medium text-azure hover:text-techelet"
+                      >
+                        Back to the first page
+                      </Link>
+                    </>
+                  ) : total === 0 ? (
+                    "The queue is empty — add topics above, or import a list with `npm run topics:import`."
+                  ) : (
+                    `No ${viewLabel}.`
+                  )}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Pager */}
+      {matching > 0 && (
+        <nav className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+          <p className="text-muted">
+            {rows.length > 0
+              ? `Showing ${firstOnPage}–${lastOnPage} of ${matching} ${viewLabel}`
+              : `${matching} ${viewLabel}`}
+          </p>
+          {pageCount > 1 && (
+            <div className="flex items-center gap-3">
+              {page > 1 ? (
+                <Link
+                  href={hrefFor(view, page - 1)}
+                  className="font-medium text-azure hover:text-techelet"
+                >
+                  ← Previous
+                </Link>
+              ) : (
+                <span className="text-faint">← Previous</span>
+              )}
+              <span className="text-muted">
+                Page {Math.min(page, pageCount)} of {pageCount}
+              </span>
+              {page < pageCount ? (
+                <Link
+                  href={hrefFor(view, page + 1)}
+                  className="font-medium text-azure hover:text-techelet"
+                >
+                  Next →
+                </Link>
+              ) : (
+                <span className="text-faint">Next →</span>
+              )}
+            </div>
+          )}
+        </nav>
+      )}
     </main>
   );
 }
