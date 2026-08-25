@@ -66,13 +66,19 @@ function formatDate(d: Date | null) {
   return d ? new Date(d).toLocaleDateString() : "—";
 }
 
-/** A link to one view/page. Page 1 and the default view stay out of the URL. */
+/**
+ * A link to one view/page. Page 1 and the default view stay out of the URL.
+ *
+ * The `#queue` fragment lands the reader on the list itself. Without it,
+ * switching filter or turning a page from halfway down the table drops you back
+ * at the page header and you have to scroll past it again every time.
+ */
 function hrefFor(view: View, page: number): string {
   const params = new URLSearchParams();
   if (view !== "activity") params.set("status", view);
   if (page > 1) params.set("page", String(page));
   const query = params.toString();
-  return query ? `/admin/topics?${query}` : "/admin/topics";
+  return `/admin/topics${query ? `?${query}` : ""}#queue`;
 }
 
 export default async function TopicsPage({
@@ -165,9 +171,7 @@ export default async function TopicsPage({
           researches, writes and fact-checks each one, then{" "}
           <strong className="font-semibold text-ink">publishes the article straight to the site</strong>.
           Anything the QA agent rejected or couldn&rsquo;t verify is held back as a draft and
-          listed under <em>Needs human</em> below. Start a run with{" "}
-          <code className="rounded bg-paper px-1 py-px text-sm">npm run research</code> in the
-          worker folder.
+          listed under <em>Needs human</em> below.
         </p>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-faint">
           This view lists the topics the pipeline has already worked on. The full waiting list
@@ -215,8 +219,9 @@ export default async function TopicsPage({
         </div>
       </form>
 
-      {/* Status filter */}
-      <div className="mb-5 flex flex-wrap items-center gap-2">
+      {/* Status filter — the scroll target for every filter and pager link, so
+          the chips stay visible with the table starting just below them. */}
+      <div id="queue" className="mb-5 flex scroll-mt-6 flex-wrap items-center gap-2">
         <Link
           href={hrefFor("activity", 1)}
           className={`chip ${view === "activity" ? "border-techelet text-techelet" : ""}`}
