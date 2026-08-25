@@ -10,6 +10,7 @@
     "db:push": "drizzle-kit push",
     "db:check": "tsx db/check-connection.ts",
     "db:migrate-topics": "tsx db/migrate-topics.ts",
+    "db:migrate-qa-reports": "tsx db/migrate-qa-reports.ts",
     "db:setup-trgm": "tsx db/setup-trigrams.ts"
   },
   "dependencies": {

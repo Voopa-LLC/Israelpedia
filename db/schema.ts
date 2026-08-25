@@ -1,6 +1,6 @@
 // db/schema.ts
 import {
-  pgTable, uuid, text, timestamp, pgEnum, integer, index, uniqueIndex, doublePrecision,
+  pgTable, uuid, text, timestamp, pgEnum, integer, index, uniqueIndex, doublePrecision, jsonb,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -145,6 +145,80 @@ export const topics = pgTable("topics", {
   // Case-insensitive uniqueness so a bulk re-import can't duplicate a topic.
   topicUniqueIdx: uniqueIndex("topics_topic_unique_idx").on(sql`lower(${t.topic})`),
 }));
+/**
+ * One fix the QA Agent applied to the article itself.
+ * Mirrors QAChange in worker/src/agents/qa.ts.
+ *
+ * `change_type` and `severity` below are plain strings, not unions, on purpose:
+ * a stored report is a historical record, and adding a new value to the agent's
+ * vocabulary must not make old rows unreadable.
+ */
+export interface QaReportChange {
+  section: string | null;
+  change_type: string;
+  before: string;
+  after: string;
+  reason: string;
+}
+
+/**
+ * One problem the QA Agent flagged but could NOT fix itself.
+ * Mirrors QAIssue in worker/src/agents/qa.ts.
+ */
+export interface QaReportIssue {
+  type: string;
+  section: string | null;
+  description: string;
+  severity: string;
+}
+
+/**
+ * The QA Agent's full report for one pipeline run.
+ *
+ * `topics` already carries a four-field summary of a topic's LAST run
+ * (qa_verdict, qa_confidence, qa_issue_count, qa_summary). That is a queue
+ * status line, not a report: it is overwritten on every re-run, it exists only
+ * for articles that came from a queued topic, and it holds none of the
+ * substance — the changes QA made and the issues it left unresolved.
+ *
+ * This table keeps the whole thing instead: one row per QA run, keyed on the
+ * article, so a re-run adds a row rather than erasing the previous one. Written
+ * by the worker (worker/src/lib/save-qa-report.ts), read by /admin/qa/<slug>.
+ *
+ * Nothing backfills older articles. Articles produced before this table existed
+ * simply have no row here, and the admin list shows no report for them.
+ *
+ * The report's `edited_article` is deliberately NOT stored: it is the article
+ * that was saved, and it already lives in `articles`.
+ */
+export const articleQaReports = pgTable("article_qa_reports", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  articleId: uuid("article_id").notNull().references(() => articles.id, { onDelete: "cascade" }),
+  /** The queue row this run came from, when there was one. */
+  topicId: uuid("topic_id").references(() => topics.id, { onDelete: "set null" }),
+  /** pass | pass_with_edits | flag | reject. Text, for the reason given above. */
+  verdict: text("verdict").notNull(),
+  /** Only set when the verdict is "reject": writing_agent | research_agent. */
+  rejectTarget: text("reject_target"),
+  /** 0..1, as the agent reported it. */
+  confidence: doublePrecision("confidence"),
+  summary: text("summary"),
+  changes: jsonb("changes").$type<QaReportChange[]>().notNull().default([]),
+  issues: jsonb("issues").$type<QaReportIssue[]>().notNull().default([]),
+  // Denormalised lengths of the two arrays above, so the admin article list can
+  // show what a report contains without reading every jsonb blob.
+  changeCount: integer("change_count").notNull().default(0),
+  issueCount: integer("issue_count").notNull().default(0),
+  /** Which research agent fed this run: perplexity | claude | gpt. */
+  researchVariant: text("research_variant"),
+  /** The status the article was saved with on the back of this verdict. */
+  savedStatus: articleStatus("saved_status"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  // The page query: every report for one article, newest first.
+  articleIdx: index("article_qa_reports_article_idx").on(t.articleId, t.createdAt),
+}));
+
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

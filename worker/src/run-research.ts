@@ -47,6 +47,9 @@
  *   worker/output/research/<topic-slug>-<timestamp>.json
  *   worker/output/articles/<topic-slug>-<timestamp>.json
  *   worker/output/qa/<topic-slug>-<timestamp>.json
+ *
+ * The QA report is ALSO stored in the database (`article_qa_reports`) whenever
+ * the article is saved, which is what /admin/qa/<slug> reads.
  */
 import dotenv from "dotenv";
 dotenv.config();
@@ -62,6 +65,7 @@ import { MANUAL_TOPICS } from "./manual-topics";
 import { buildCombinedDocx, RunEntry } from "./lib/docx-combined";
 import { closeDb } from "./lib/db";
 import { saveArticle } from "./lib/save-article";
+import { saveQaReport } from "./lib/save-qa-report";
 import {
   claimNextTopic,
   countPending,
@@ -331,6 +335,24 @@ async function processTopic(
         `(${saved.referenceCount} references, status: ${articleStatus})` +
         (articleStatus === "published" ? `  → live at /article/${saved.slug}` : "")
     );
+    // Store the full report next to the article, for /admin/qa/<slug>. The
+    // article is already committed at this point, so a failure here must not
+    // turn a good run into a failed one — it is logged and the run continues.
+    if (qa) {
+      try {
+        await saveQaReport({
+          articleId: saved.articleId,
+          topicId: row.id,
+          report: qa,
+          researchVariant: VARIANT,
+          savedStatus: articleStatus,
+        });
+        console.log(`[Runner] QA report stored → /admin/qa/${saved.slug}`);
+      } catch (err) {
+        console.warn(`[Runner] Storing the QA report FAILED: ${errorText(err)}`);
+      }
+    }
+
     if (rejected) {
       outcome.note = "QA rejected this article — saved as a draft, NOT published.";
     } else if (qaError) {

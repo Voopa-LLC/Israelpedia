@@ -1,7 +1,7 @@
 // app/admin/page.tsx
 import { requireAdmin } from "@/lib/auth-guard";
 import { db } from "@/db";
-import { articles, suggestions, users } from "@/db/schema";
+import { articleQaReports, articles, suggestions, users } from "@/db/schema";
 import { eq, desc, ilike, sql } from "drizzle-orm";
 import Link from "next/link";
 import { acceptSuggestion, rejectSuggestion } from "./actions";
@@ -29,6 +29,30 @@ export default async function AdminPage({
     .from(articles)
     .where(query ? ilike(articles.title, `%${query}%`) : undefined)
     .orderBy(STATUS_ORDER, desc(articles.updatedAt));
+
+  /**
+   * Which articles have a stored QA report, and what the newest one says.
+   *
+   * Only articles the pipeline produced AFTER `article_qa_reports` existed have
+   * a row here — nothing was backfilled — so the "QA report" action is a link
+   * for those and inert text for the rest. Reports are few and the columns are
+   * narrow (the jsonb bodies are deliberately left out), so one ordered read
+   * and a map beats a correlated subquery per row.
+   */
+  const qaReports = await db
+    .select({
+      articleId: articleQaReports.articleId,
+      verdict: articleQaReports.verdict,
+      changeCount: articleQaReports.changeCount,
+      issueCount: articleQaReports.issueCount,
+      createdAt: articleQaReports.createdAt,
+    })
+    .from(articleQaReports)
+    .orderBy(desc(articleQaReports.createdAt));
+
+  const latestQa = new Map<string, (typeof qaReports)[number]>();
+  // Newest first, so the first row seen for an article is the one to show.
+  for (const r of qaReports) if (!latestQa.has(r.articleId)) latestQa.set(r.articleId, r);
 
   const pendingSuggestions = await db
     .select({
@@ -99,44 +123,69 @@ export default async function AdminPage({
             </tr>
           </thead>
           <tbody>
-            {allArticles.map((a) => (
-              <tr key={a.id} className="border-b border-hairline last:border-0 hover:bg-paper/50">
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <Link
-                      href={`/article/${a.slug}`}
-                      className="font-display text-base font-semibold text-ink hover:text-techelet"
-                    >
-                      {a.title}
-                    </Link>
-                    <span
-                      title={a.bodyHe ? "Has Hebrew version" : "No Hebrew version yet"}
-                      className={`shrink-0 rounded px-1 py-px text-[0.65rem] font-bold tracking-wide ${
-                        a.bodyHe ? "text-brass" : "text-faint"
-                      }`}
-                    >
-                      HE
-                    </span>
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <StatusControl articleId={a.id} status={a.status} />
-                </td>
-                <td className="hidden px-4 py-3 text-muted sm:table-cell">
-                  {new Date(a.updatedAt).toLocaleDateString()}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center justify-end">
-                    <Link
-                      href={`/admin/edit/${a.slug}`}
-                      className="font-medium text-azure hover:text-techelet"
-                    >
-                      Edit
-                    </Link>
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {allArticles.map((a) => {
+              const qa = latestQa.get(a.id);
+              return (
+                <tr key={a.id} className="border-b border-hairline last:border-0 hover:bg-paper/50">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/article/${a.slug}`}
+                        className="font-display text-base font-semibold text-ink hover:text-techelet"
+                      >
+                        {a.title}
+                      </Link>
+                      <span
+                        title={a.bodyHe ? "Has Hebrew version" : "No Hebrew version yet"}
+                        className={`shrink-0 rounded px-1 py-px text-[0.65rem] font-bold tracking-wide ${
+                          a.bodyHe ? "text-brass" : "text-faint"
+                        }`}
+                      >
+                        HE
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <StatusControl articleId={a.id} status={a.status} />
+                  </td>
+                  <td className="hidden px-4 py-3 text-muted sm:table-cell">
+                    {new Date(a.updatedAt).toLocaleDateString()}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-3">
+                      <Link
+                        href={`/admin/edit/${a.slug}`}
+                        className="font-medium text-azure hover:text-techelet"
+                      >
+                        Edit
+                      </Link>
+                      <span className="text-faint" aria-hidden="true">·</span>
+                      {qa ? (
+                        <Link
+                          href={`/admin/qa/${a.slug}`}
+                          title={
+                            `QA verdict: ${qa.verdict.replace(/_/g, " ")} · ` +
+                            `${qa.changeCount} change${qa.changeCount === 1 ? "" : "s"}, ` +
+                            `${qa.issueCount} issue${qa.issueCount === 1 ? "" : "s"} · ` +
+                            new Date(qa.createdAt).toLocaleDateString()
+                          }
+                          className="font-medium whitespace-nowrap text-azure hover:text-techelet"
+                        >
+                          QA report
+                        </Link>
+                      ) : (
+                        <span
+                          title="No QA report stored for this article."
+                          className="font-medium whitespace-nowrap text-faint"
+                        >
+                          QA report
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
             {allArticles.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-4 py-10 text-center text-muted">
