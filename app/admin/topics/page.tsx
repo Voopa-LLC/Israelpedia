@@ -11,6 +11,7 @@ import {
   setPipelineEnabled,
   skipTopic,
 } from "./actions";
+import ScrollToHash from "./scroll-to-hash";
 
 export const metadata = { title: "Topic queue" };
 
@@ -354,6 +355,12 @@ export default async function TopicsPage({
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+      {/*
+        Puts the reader on the anchor they asked for after a client-side
+        navigation, which a server action's redirect() is. Harmless when the
+        browser has already done it.
+      */}
+      <ScrollToHash trigger={`${view}|${q}|${page}|${params.added ?? ""}`} />
       <header className="mb-8">
         <span className="eyebrow">Editorial workspace</span>
         <h1 className="mt-1.5 font-display text-3xl font-bold text-ink">Topic queue</h1>
@@ -375,7 +382,7 @@ export default async function TopicsPage({
         runs on another host — see worker/src/lib/pipeline-control.ts. The state
         shown is a snapshot from when this page was rendered; reload to refresh.
       */}
-      <section className="card mb-8 p-5">
+      <section id="pipeline" className="card mb-8 scroll-mt-6 p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -408,15 +415,6 @@ export default async function TopicsPage({
         </p>
       </section>
 
-      {Number.isFinite(added) && params.added !== undefined && (
-        <p className="mb-5 rounded-lg border border-brass/40 bg-brass/10 px-4 py-3 text-sm text-ink">
-          {added > 0
-            ? `Added ${added} topic${added === 1 ? "" : "s"} to the front of the queue.`
-            : "No new topics were added."}
-          {skippedCount > 0 && ` ${skippedCount} were already queued.`}
-        </p>
-      )}
-
       {/* Add topics */}
       <form action={addTopics} className="card mb-8 p-5">
         <h2 className="font-display text-lg font-bold text-ink">Add topics</h2>
@@ -444,6 +442,21 @@ export default async function TopicsPage({
           link, so both stay visible with the table starting just below them. */}
       <div id="queue" className="mb-5 scroll-mt-6">
         {/*
+          The confirmation lives HERE, not up beside the form that produced it.
+          Adding topics redirects to #queue, so this is the first thing on
+          screen afterwards — followed immediately by the new topics themselves,
+          which now sort to the front of the pending list.
+        */}
+        {Number.isFinite(added) && params.added !== undefined && (
+          <p className="mb-3 rounded-lg border border-brass/40 bg-brass/10 px-4 py-3 text-sm text-ink">
+            {added > 0
+              ? `Added ${added} topic${added === 1 ? "" : "s"} to the front of the queue.`
+              : "No new topics were added."}
+            {skippedCount > 0 && ` ${skippedCount} were already queued.`}
+          </p>
+        )}
+
+        {/*
           A plain GET form: the search lives in the URL exactly like the status
           filter and the page number, so a result is shareable, survives a
           reload, and pages through without any client state.
@@ -451,8 +464,17 @@ export default async function TopicsPage({
           `page` is deliberately not carried over — a new search starts at the
           first page. Nor is `status`: a search should look everywhere first,
           and the chips below narrow it afterwards.
+
+          The action carries `#queue` so submitting lands on the results rather
+          than the top of the page. Only the query component of a form action is
+          replaced on submit, so the fragment survives — and ScrollToHash below
+          re-applies it regardless.
         */}
-        <form method="get" action="/admin/topics" className="flex flex-wrap items-center gap-2">
+        <form
+          method="get"
+          action="/admin/topics#queue"
+          className="flex flex-wrap items-center gap-2"
+        >
           <input
             type="search"
             name="q"

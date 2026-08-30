@@ -65,10 +65,15 @@ export async function addTopics(formData: FormData) {
       return true;
     });
 
-  // Land on the Pending view: new topics are pending, and the default view
-  // deliberately excludes that bucket, so otherwise you'd be told "Added 12
-  // topics" while looking at a table that doesn't contain them.
-  if (submitted.length === 0) redirect("/admin/topics?status=pending&added=0");
+  // Land on the Pending view, at the list itself.
+  //
+  // The view, because new topics are pending and the default view deliberately
+  // excludes that bucket — otherwise you'd be told "Added 12 topics" while
+  // looking at a table that doesn't contain them. The `#queue` fragment,
+  // because the confirmation and the newly added rows are both down there, and
+  // being returned to the top of the page means scrolling past the header and
+  // the form every single time.
+  if (submitted.length === 0) redirect("/admin/topics?status=pending&added=0#queue");
 
   /**
    * One above the current maximum, evaluated INSIDE the insert rather than as a
@@ -86,7 +91,7 @@ export async function addTopics(formData: FormData) {
 
   redirect(
     `/admin/topics?status=pending&added=${inserted.length}` +
-      `&skipped=${submitted.length - inserted.length}`
+      `&skipped=${submitted.length - inserted.length}#queue`
   );
 }
 
@@ -107,10 +112,17 @@ export async function addTopics(formData: FormData) {
  * The upsert is deliberate. The row is normally created by
  * db/migrations/0003_pipeline_control.sql; if that has not been run, an admin
  * pressing Start should create the switch rather than hit an error.
+ *
+ * revalidatePath and NOT redirect, unlike addTopics. A redirect is a navigation:
+ * it would throw away whichever search, filter and page the admin was looking
+ * at, and send them back to the top. Re-validating re-renders the page where it
+ * stands — the control panel updates in place, and the reader does not move.
  */
 export async function setPipelineEnabled(formData: FormData) {
   const session = await requireAdmin();
-  const userId = (session.user as any).id as string;
+  // `updated_by` is nullable, so no cast is needed here — the column simply
+  // records who flipped the switch when that is known.
+  const userId = session.user?.id ?? null;
   const enabled = formData.get("enabled") === "true";
 
   // `now()` rather than a JS Date: the panel reports these as "3 minutes ago"
