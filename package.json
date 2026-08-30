@@ -11,6 +11,7 @@
     "db:check": "tsx db/check-connection.ts",
     "db:migrate-topics": "tsx db/migrate-topics.ts",
     "db:migrate-qa-reports": "tsx db/migrate-qa-reports.ts",
+    "db:migrate-pipeline": "tsx db/migrate-pipeline-control.ts",
     "db:setup-trgm": "tsx db/setup-trigrams.ts"
   },
   "dependencies": {

@@ -1,6 +1,7 @@
 // db/schema.ts
 import {
   pgTable, uuid, text, timestamp, pgEnum, integer, index, uniqueIndex, doublePrecision, jsonb,
+  boolean, check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -217,6 +218,48 @@ export const articleQaReports = pgTable("article_qa_reports", {
 }, (t) => ({
   // The page query: every report for one article, newest first.
   articleIdx: index("article_qa_reports_article_idx").on(t.articleId, t.createdAt),
+}));
+
+/**
+ * The AI pipeline's on/off switch, and what the worker is doing right now.
+ *
+ * The pipeline runs as a separate service (Railway) and the admin panel runs on
+ * Vercel. Neither can reach the other; this database is the only thing they
+ * share, so the switch lives here. The worker re-reads this row every few
+ * seconds, which is what lets Start/Stop on /admin/topics take effect on a
+ * process nothing can address directly.
+ *
+ * EXACTLY ONE ROW. `id` is a boolean primary key constrained to `true`, so a
+ * second row is impossible and every write is an upsert on the same target.
+ *
+ * The `worker_*` columns are written BY the worker and only read by the admin
+ * page. They are the difference between showing what was asked for and showing
+ * what is actually happening: without a heartbeat, a worker that crashed, was
+ * never deployed, or is asleep still reads as "on" because someone once pressed
+ * the button.
+ */
+export const pipelineControl = pgTable("pipeline_control", {
+  /** Single-row guard — only `true` is permitted (see the CHECK below). */
+  id: boolean("id").primaryKey().default(true),
+  /** The switch. Off unless an admin turns it on. */
+  enabled: boolean("enabled").notNull().default(false),
+  /** When the switch was last flipped, and by whom. Never touched by the worker. */
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  /** off | idle | working | misconfigured. Written by the worker. */
+  workerState: text("worker_state"),
+  /** Why, when the state alone doesn't explain it — e.g. a missing API key. */
+  workerNote: text("worker_note"),
+  /** The topic being processed right now, so the admin page can name it. */
+  workerTopic: text("worker_topic"),
+  /**
+   * Heartbeat, stamped on a timer rather than once per topic. A topic takes
+   * 15+ minutes end to end, so a per-topic stamp would make a perfectly healthy
+   * worker look dead for most of every run.
+   */
+  workerSeenAt: timestamp("worker_seen_at"),
+}, (t) => ({
+  singleRow: check("pipeline_control_single_row", sql`${t.id}`),
 }));
 
 export const passwordResetTokens = pgTable("password_reset_tokens", {

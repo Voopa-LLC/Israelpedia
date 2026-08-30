@@ -27,25 +27,54 @@ trustworthy reference site — deep and comprehensive coverage of these subjects
 ## How the AI pipeline works
 1. Topics we want articles about are queued in the `topics` table — added at
    `/admin/topics` or in bulk with `npm run topics:import`.
-2. `npm run research` (in `worker/`) claims pending topics one at a time and
-   runs three agents: Research → Writing → QA/fact-checking.
+2. The worker service (`worker/src/index.ts`, deployed to Railway) works that
+   queue CONTINUOUSLY — not on a schedule. It claims one pending topic at a
+   time and runs three agents: Research → Writing → QA/fact-checking. When the
+   queue is empty it waits and checks again.
 3. The finished article is saved to `articles` as origin="ai" and
    status="published" — it goes LIVE immediately, with its citations in
-   `article_references`. There is no human review step. (Changed 2026-08-23;
-   `npm run research -- --review` holds a run in the review queue instead.)
+   `article_references`. There is no human review step. (Changed 2026-08-23.)
 4. The one exception: an article the QA agent REJECTED, or one whose QA run
    failed, is saved as status="draft" and never reaches readers. It shows as
    "Needs human" at `/admin/topics`.
 5. The outcome of each run — QA verdict, confidence, unresolved issue count —
-   is written back onto the topic row.
+   is written back onto the topic row, and the full QA report to
+   `article_qa_reports` for `/admin/qa/<slug>`.
+
+### Starting and stopping it
+The switch is a row in `pipeline_control`, not an environment variable — the
+worker and the admin panel run on different hosts and the database is the only
+thing they share. An admin flips it with the Start/Stop button at
+`/admin/topics`; the worker polls it every ~20s, so no redeploy is involved.
+
+Leave the worker service running: booting it does not start the pipeline, and
+stopping the pipeline does not stop the container. It starts OFF. Stop means
+"claim nothing more" — a topic already being written is always finished first.
+
+The same row carries a heartbeat the worker writes (`worker_state`,
+`worker_seen_at`, `worker_topic`), so the panel shows what is actually
+happening rather than only what was asked for. Create the row once with
+`npm run db:migrate-pipeline`. Everything else in `worker/.env.example` is
+tuning.
+
+### Local runs never publish
+`npm run research` (in `worker/`) is for checking the AGENTS, not for
+publishing. It reads pending topics WITHOUT claiming them, runs the same three
+agents, and writes only to the combined Word document and the per-stage JSON in
+`worker/output/`. Nothing reaches the site, `articles`, or the topic queue.
+`npm run research -- --publish` opts into the database path — the same claim,
+publish and write-back the service does — for running it by hand.
+
+The .docx exists only for that local review. The cloud service writes no files:
+a container's disk is wiped on every redeploy, and everything worth keeping is
+already in Postgres.
 
 The `suggestions` table and the site's "suggest a topic" feature are SEPARATE
 from this and unchanged: readers propose topics, an admin triages them by hand.
 No agent touches suggestions yet.
 
 The AI pipeline runs as a SEPARATE worker service (not inside this Next.js app),
-connected to the same database. Its scheduled cron is still disabled — runs are
-triggered manually.
+connected to the same database.
 
 ## Tech stack
 - Next.js (App Router) + TypeScript

@@ -1,10 +1,16 @@
 // app/admin/topics/page.tsx
 import { requireAdmin } from "@/lib/auth-guard";
 import { db } from "@/db";
-import { articles, topics } from "@/db/schema";
-import { desc, asc, eq, inArray, sql } from "drizzle-orm";
+import { articles, pipelineControl, topics, users } from "@/db/schema";
+import { and, desc, asc, eq, ilike, inArray, sql } from "drizzle-orm";
 import Link from "next/link";
-import { addTopics, deleteTopic, retryTopic, skipTopic } from "./actions";
+import {
+  addTopics,
+  deleteTopic,
+  retryTopic,
+  setPipelineEnabled,
+  skipTopic,
+} from "./actions";
 
 export const metadata = { title: "Topic queue" };
 
@@ -25,6 +31,75 @@ const PAGE_SIZE = 50;
  * work list for the worker, not something a human reads top to bottom.
  */
 const ACTIVITY: Status[] = ["running", "failed", "needs_human", "done"];
+
+/**
+ * Longest search term accepted. Anything past this is a paste accident, and a
+ * pattern that long can only match nothing.
+ */
+const MAX_QUERY = 100;
+
+/**
+ * How long a heartbeat stays believable, in seconds.
+ *
+ * The worker stamps one every PIPELINE_CONTROL_POLL_MS (20s by default), so
+ * three missed beats plus slack means something is genuinely wrong rather than
+ * a slow round trip. Past this the panel stops claiming the pipeline is running
+ * — a switch that reads "on" while nothing is listening is worse than no panel
+ * at all.
+ */
+const HEARTBEAT_STALE_SECONDS = 90;
+
+/**
+ * Coarse relative time, from an age the DATABASE calculated.
+ *
+ * Deliberately not `Date.now() - row.someTimestamp`. These are `timestamp`
+ * columns with no zone, and postgres-js reads them back shifted by whatever
+ * timezone the reading process runs in — so comparing them against a JS clock
+ * is correct only by the accident of the host running on UTC. Subtracting in
+ * SQL is right everywhere.
+ */
+function ago(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} minute${m === 1 ? "" : "s"} ago`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h} hour${h === 1 ? "" : "s"} ago`;
+  return `${Math.round(h / 24)} days ago`;
+}
+
+/**
+ * A term as a case-insensitive "contains" pattern.
+ *
+ * `%`, `_` and `\` are LIKE wildcards, so they are escaped first — otherwise
+ * searching for `100%` would silently match every topic, and a lone `_` would
+ * match all of them. Backslash goes first: escaping it after the others would
+ * escape the escapes.
+ */
+function likePattern(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
+/**
+ * The matched part of a topic, marked.
+ *
+ * Plain string slicing, not HTML — the term comes from the URL, and building
+ * markup out of it would be an injection hole. React escapes all three pieces.
+ * Only the first occurrence is marked; that is enough to see why a row matched.
+ */
+function Highlight({ text, term }: { text: string; term: string }) {
+  const at = term ? text.toLowerCase().indexOf(term.toLowerCase()) : -1;
+  if (at === -1) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <mark className="rounded-sm bg-brass/30 px-0.5 text-ink">
+        {text.slice(at, at + term.length)}
+      </mark>
+      {text.slice(at + term.length)}
+    </>
+  );
+}
 
 const STATUS_LABELS: Record<Status, string> = {
   pending: "Pending",
@@ -67,15 +142,20 @@ function formatDate(d: Date | null) {
 }
 
 /**
- * A link to one view/page. Page 1 and the default view stay out of the URL.
+ * A link to one view/page, keeping the current search.
+ *
+ * Only the non-default view is written to the URL, and the default depends on
+ * whether a search is running: a search spans every status (see below), so
+ * `all` is the default then and `activity` is the one that must be named.
  *
  * The `#queue` fragment lands the reader on the list itself. Without it,
  * switching filter or turning a page from halfway down the table drops you back
  * at the page header and you have to scroll past it again every time.
  */
-function hrefFor(view: View, page: number): string {
+function hrefFor(view: View, page: number, q: string): string {
   const params = new URLSearchParams();
-  if (view !== "activity") params.set("status", view);
+  if (view !== (q ? "all" : "activity")) params.set("status", view);
+  if (q) params.set("q", q);
   if (page > 1) params.set("page", String(page));
   const query = params.toString();
   return `/admin/topics${query ? `?${query}` : ""}#queue`;
@@ -84,29 +164,55 @@ function hrefFor(view: View, page: number): string {
 export default async function TopicsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; page?: string; added?: string; skipped?: string }>;
+  searchParams: Promise<{
+    status?: string;
+    q?: string;
+    page?: string;
+    added?: string;
+    skipped?: string;
+  }>;
 }) {
   await requireAdmin();
   const params = await searchParams;
 
-  const view: View = ORDER.includes(params.status as Status)
+  const q = (params.q ?? "").trim().slice(0, MAX_QUERY);
+
+  /**
+   * A search defaults to EVERY status, not the usual activity digest.
+   *
+   * The question a search answers is "is this topic in the queue, and where has
+   * it got to" — and the answer is `pending` for almost all of them, which the
+   * activity view deliberately hides. Searching inside that view would report
+   * "no matches" for a topic sitting in the queue. An explicit status in the URL
+   * still wins, so the chips narrow a search as usual.
+   */
+  const chosen: View | null = ORDER.includes(params.status as Status)
     ? (params.status as Status)
     : params.status === "all"
       ? "all"
-      : "activity";
+      : params.status === "activity"
+        ? "activity"
+        : null;
+  const view: View = chosen ?? (q ? "all" : "activity");
 
   const requested = Number(params.page);
   const page = Number.isFinite(requested) && requested >= 1 ? Math.floor(requested) : 1;
 
-  const where =
+  // Applied to the rows AND to the counts below, so the chips report how many
+  // matches are in each bucket rather than how big the whole queue is.
+  const search = q ? ilike(topics.topic, likePattern(q)) : undefined;
+
+  const statusFilter =
     view === "all"
       ? undefined
       : view === "activity"
         ? inArray(topics.status, ACTIVITY)
         : eq(topics.status, view);
 
+  const where = and(search, statusFilter);
+
   // The two queries are independent — one round trip to Neon instead of two.
-  const [rows, counts] = await Promise.all([
+  const [rows, counts, controlRows] = await Promise.all([
     db
       .select({
         id: topics.id,
@@ -137,7 +243,28 @@ export default async function TopicsPage({
     db
       .select({ status: topics.status, n: sql<number>`count(*)::int` })
       .from(topics)
+      .where(search)
       .groupBy(topics.status),
+    // The pipeline switch, plus whatever the worker last reported about itself.
+    db
+      .select({
+        enabled: pipelineControl.enabled,
+        updatedAt: pipelineControl.updatedAt,
+        updatedByName: users.name,
+        workerState: pipelineControl.workerState,
+        workerNote: pipelineControl.workerNote,
+        workerTopic: pipelineControl.workerTopic,
+        // Ages, not timestamps — see the note on ago().
+        seenSecs: sql<
+          number | null
+        >`extract(epoch from (now() - ${pipelineControl.workerSeenAt}))::int`,
+        switchedSecs: sql<
+          number
+        >`extract(epoch from (now() - ${pipelineControl.updatedAt}))::int`,
+      })
+      .from(pipelineControl)
+      .leftJoin(users, eq(pipelineControl.updatedBy, users.id))
+      .limit(1),
   ]);
 
   const countFor = (s: Status) => counts.find((c) => c.status === s)?.n ?? 0;
@@ -151,12 +278,76 @@ export default async function TopicsPage({
   const firstOnPage = (page - 1) * PAGE_SIZE + 1;
   const lastOnPage = firstOnPage + rows.length - 1;
 
-  const viewLabel =
+  const bucketLabel =
     view === "all"
       ? "topics"
       : view === "activity"
         ? "topics with activity"
         : `${STATUS_LABELS[view].toLowerCase()} topics`;
+  const viewLabel = q ? `${bucketLabel} matching \u201c${q}\u201d` : bucketLabel;
+
+  /**
+   * What to say about the pipeline.
+   *
+   * Two separate facts: whether it is switched ON (what an admin asked for) and
+   * whether a worker is actually ALIVE (what is true). The interesting states
+   * are the ones where those disagree — switched on with nothing listening is
+   * the failure this panel exists to make visible.
+   */
+  const control = controlRows[0] ?? null;
+  const enabled = control?.enabled ?? false;
+  const seenSecs = control?.seenSecs ?? null;
+  const live = seenSecs !== null && seenSecs < HEARTBEAT_STALE_SECONDS;
+  const workerState = control?.workerState ?? null;
+
+  let tone: "good" | "warn" | "bad" | "idle";
+  let headline: string;
+  let detail: string;
+
+  if (!control) {
+    tone = "warn";
+    headline = "Not set up";
+    detail =
+      "The pipeline_control row does not exist yet. Run `npm run db:migrate-pipeline`, " +
+      "or press Start below to create it.";
+  } else if (live && workerState === "misconfigured") {
+    tone = "bad";
+    headline = "Cannot run";
+    detail = control.workerNote ?? "The worker reported a configuration problem.";
+  } else if (enabled && live) {
+    tone = "good";
+    headline = "Running";
+    detail =
+      workerState === "working" && control.workerTopic
+        ? `Writing \u201c${control.workerTopic}\u201d.`
+        : (control.workerNote ?? "Waiting for a topic to claim.");
+  } else if (enabled && !live) {
+    tone = "warn";
+    headline = "No worker";
+    detail =
+      seenSecs !== null
+        ? `Switched on, but nothing has checked in since ${ago(seenSecs)}. The worker ` +
+          `service is probably down or not deployed.`
+        : "Switched on, but no worker has ever checked in. Is the worker service deployed?";
+  } else if (live) {
+    tone = "idle";
+    headline = "Stopped";
+    detail = "The worker is connected and waiting for you to start it.";
+  } else {
+    tone = "idle";
+    headline = "Stopped";
+    detail =
+      seenSecs !== null
+        ? `No worker connected — last seen ${ago(seenSecs)}.`
+        : "No worker has checked in yet.";
+  }
+
+  const TONES = {
+    good: "bg-emerald-500/15 text-emerald-700",
+    warn: "bg-brass/25 text-brass",
+    bad: "bg-[#b3261e]/15 text-[#b3261e]",
+    idle: "bg-hairline-strong/30 text-muted",
+  } as const;
 
   const added = Number(params.added);
   const skippedCount = Number(params.skipped);
@@ -167,8 +358,8 @@ export default async function TopicsPage({
         <span className="eyebrow">Editorial workspace</span>
         <h1 className="mt-1.5 font-display text-3xl font-bold text-ink">Topic queue</h1>
         <p className="mt-2 max-w-2xl text-[0.95rem] leading-relaxed text-muted">
-          What the AI pipeline writes about. A run claims pending topics in priority order,
-          researches, writes and fact-checks each one, then{" "}
+          What the AI pipeline writes about. A run claims pending topics highest-priority
+          first, researches, writes and fact-checks each one, then{" "}
           <strong className="font-semibold text-ink">publishes the article straight to the site</strong>.
           Anything the QA agent rejected or couldn&rsquo;t verify is held back as a draft and
           listed under <em>Needs human</em> below.
@@ -179,10 +370,48 @@ export default async function TopicsPage({
         </p>
       </header>
 
+      {/*
+        Pipeline control. The switch lives in the database because the worker
+        runs on another host — see worker/src/lib/pipeline-control.ts. The state
+        shown is a snapshot from when this page was rendered; reload to refresh.
+      */}
+      <section className="card mb-8 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="font-display text-lg font-bold text-ink">AI pipeline</h2>
+              <span className={`badge ${TONES[tone]}`}>{headline}</span>
+            </div>
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">{detail}</p>
+            <p className="mt-1 text-xs text-faint">
+              {control
+                ? `Switched ${enabled ? "on" : "off"} ${ago(control.switchedSecs)}` +
+                  (control.updatedByName ? ` by ${control.updatedByName}` : "") +
+                  (live && seenSecs !== null ? ` · worker seen ${ago(seenSecs)}` : "")
+                : "No switch record yet."}
+            </p>
+          </div>
+
+          <form action={setPipelineEnabled} className="shrink-0">
+            <input type="hidden" name="enabled" value={enabled ? "false" : "true"} />
+            <button type="submit" className={`btn ${enabled ? "btn-danger" : "btn-primary"}`}>
+              {enabled ? "Stop the pipeline" : "Start the pipeline"}
+            </button>
+          </form>
+        </div>
+
+        <p className="mt-3 border-t border-hairline pt-3 text-xs leading-relaxed text-faint">
+          Starting publishes articles to the live site and spends money on the research,
+          writing and QA APIs. Stopping lets the topic already in progress finish first —
+          it is never abandoned half-written. Either way the worker notices within about
+          twenty seconds.
+        </p>
+      </section>
+
       {Number.isFinite(added) && params.added !== undefined && (
         <p className="mb-5 rounded-lg border border-brass/40 bg-brass/10 px-4 py-3 text-sm text-ink">
           {added > 0
-            ? `Added ${added} topic${added === 1 ? "" : "s"} to the queue.`
+            ? `Added ${added} topic${added === 1 ? "" : "s"} to the front of the queue.`
             : "No new topics were added."}
           {skippedCount > 0 && ` ${skippedCount} were already queued.`}
         </p>
@@ -193,7 +422,9 @@ export default async function TopicsPage({
         <h2 className="font-display text-lg font-bold text-ink">Add topics</h2>
         <p className="mt-1 text-sm text-muted">
           One per line. Lines starting with <code>#</code> are ignored, and topics already in
-          the queue are skipped.
+          the queue are skipped. Anything added here goes to the{" "}
+          <strong className="font-semibold text-ink">front of the queue</strong> — the pipeline
+          picks it up before the existing backlog.
         </p>
         <textarea
           name="topics"
@@ -202,48 +433,77 @@ export default async function TopicsPage({
           placeholder={"Energy in Israel\nZvi Yehuda Kook\nMa'alot-Tarshiha"}
           className="input mt-3 font-mono text-sm"
         />
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 text-sm text-muted">
-            Priority
-            <input
-              name="priority"
-              type="number"
-              defaultValue={0}
-              className="input w-24"
-              title="Higher priority topics are researched first."
-            />
-          </label>
+        <div className="mt-3 flex">
           <button type="submit" className="btn btn-primary ml-auto">
             Add to queue
           </button>
         </div>
       </form>
 
-      {/* Status filter — the scroll target for every filter and pager link, so
-          the chips stay visible with the table starting just below them. */}
-      <div id="queue" className="mb-5 flex scroll-mt-6 flex-wrap items-center gap-2">
-        <Link
-          href={hrefFor("activity", 1)}
-          className={`chip ${view === "activity" ? "border-techelet text-techelet" : ""}`}
-          title="Running, failed, needs human and done"
-        >
-          Activity ({activityTotal})
-        </Link>
-        <Link
-          href={hrefFor("all", 1)}
-          className={`chip ${view === "all" ? "border-techelet text-techelet" : ""}`}
-        >
-          All ({total})
-        </Link>
-        {ORDER.map((s) => (
+      {/* Search + status filter — the scroll target for every filter and pager
+          link, so both stay visible with the table starting just below them. */}
+      <div id="queue" className="mb-5 scroll-mt-6">
+        {/*
+          A plain GET form: the search lives in the URL exactly like the status
+          filter and the page number, so a result is shareable, survives a
+          reload, and pages through without any client state.
+
+          `page` is deliberately not carried over — a new search starts at the
+          first page. Nor is `status`: a search should look everywhere first,
+          and the chips below narrow it afterwards.
+        */}
+        <form method="get" action="/admin/topics" className="flex flex-wrap items-center gap-2">
+          <input
+            type="search"
+            name="q"
+            defaultValue={q}
+            maxLength={MAX_QUERY}
+            placeholder="Search topics…"
+            aria-label="Search the topic queue"
+            className="input h-10 w-full max-w-sm"
+          />
+          <button type="submit" className="btn btn-secondary">
+            Search
+          </button>
+          {q && (
+            <Link
+              href="/admin/topics"
+              className="text-sm font-medium text-muted hover:text-ink"
+            >
+              Clear
+            </Link>
+          )}
+          {q && (
+            <span className="text-sm text-faint">
+              {total} match{total === 1 ? "" : "es"} across every status
+            </span>
+          )}
+        </form>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <Link
-            key={s}
-            href={hrefFor(s, 1)}
-            className={`chip ${view === s ? "border-techelet text-techelet" : ""}`}
+            href={hrefFor("activity", 1, q)}
+            className={`chip ${view === "activity" ? "border-techelet text-techelet" : ""}`}
+            title="Running, failed, needs human and done"
           >
-            {STATUS_LABELS[s]} ({countFor(s)})
+            Activity ({activityTotal})
           </Link>
-        ))}
+          <Link
+            href={hrefFor("all", 1, q)}
+            className={`chip ${view === "all" ? "border-techelet text-techelet" : ""}`}
+          >
+            All ({total})
+          </Link>
+          {ORDER.map((s) => (
+            <Link
+              key={s}
+              href={hrefFor(s, 1, q)}
+              className={`chip ${view === s ? "border-techelet text-techelet" : ""}`}
+            >
+              {STATUS_LABELS[s]} ({countFor(s)})
+            </Link>
+          ))}
+        </div>
       </div>
 
       {/* Queue table */}
@@ -267,7 +527,9 @@ export default async function TopicsPage({
                 <tr key={t.id} className="border-b border-hairline last:border-0 align-top hover:bg-paper/50">
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-display text-base font-semibold text-ink">{t.topic}</span>
+                      <span className="font-display text-base font-semibold text-ink">
+                        <Highlight text={t.topic} term={q} />
+                      </span>
                       {t.priority !== 0 && (
                         <span className="badge bg-paper text-muted" title="Priority">
                           p{t.priority}
@@ -359,11 +621,30 @@ export default async function TopicsPage({
                     <>
                       Nothing on page {page}.{" "}
                       <Link
-                        href={hrefFor(view, 1)}
+                        href={hrefFor(view, 1, q)}
                         className="font-medium text-azure hover:text-techelet"
                       >
                         Back to the first page
                       </Link>
+                    </>
+                  ) : q ? (
+                    <>
+                      No {bucketLabel} match &ldquo;{q}&rdquo;.{" "}
+                      {view === "all" ? (
+                        <Link
+                          href="/admin/topics"
+                          className="font-medium text-azure hover:text-techelet"
+                        >
+                          Clear search
+                        </Link>
+                      ) : (
+                        <Link
+                          href={hrefFor("all", 1, q)}
+                          className="font-medium text-azure hover:text-techelet"
+                        >
+                          Search every status
+                        </Link>
+                      )}
                     </>
                   ) : total === 0 ? (
                     "The queue is empty — add topics above, or import a list with `npm run topics:import`."
@@ -389,7 +670,7 @@ export default async function TopicsPage({
             <div className="flex items-center gap-3">
               {page > 1 ? (
                 <Link
-                  href={hrefFor(view, page - 1)}
+                  href={hrefFor(view, page - 1, q)}
                   className="font-medium text-azure hover:text-techelet"
                 >
                   ← Previous
@@ -402,7 +683,7 @@ export default async function TopicsPage({
               </span>
               {page < pageCount ? (
                 <Link
-                  href={hrefFor(view, page + 1)}
+                  href={hrefFor(view, page + 1, q)}
                   className="font-medium text-azure hover:text-techelet"
                 >
                   Next →

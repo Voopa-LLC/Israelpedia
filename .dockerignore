@@ -1,0 +1,41 @@
+# Build context for worker/Dockerfile (context = repository root).
+#
+# The image installs its own dependencies and compiles its own TypeScript, so
+# everything below is either rebuilt inside the container or has no business
+# being shipped to a host at all.
+
+# Rebuilt by `npm install` in the image. Copying the local ones over the
+# installed tree is also how a Windows/macOS build ends up with binaries an
+# Alpine container cannot run.
+node_modules
+worker/node_modules
+
+# Build output
+.next
+out
+worker/dist
+*.tsbuildinfo
+
+# Secrets — the service reads its configuration from the host's environment
+.env
+.env.*
+worker/.env
+worker/.env.*
+
+# Local pipeline output: the review documents and per-stage JSON. The cloud
+# service writes none of this (see worker/src/pipeline.ts).
+worker/output
+*.docx
+
+# Database dumps — full copies of the users, accounts and sessions tables
+*.dump
+*.sql.gz
+
+# Not part of the worker
+.git
+.github
+.vercel
+.claude
+app
+components
+public

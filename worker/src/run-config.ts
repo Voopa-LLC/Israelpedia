@@ -50,16 +50,31 @@ export function resolveVariant(argv: string[] = process.argv.slice(2)): Research
 }
 
 /**
- * Flags that control WHERE a run gets its topics and whether it writes to the
- * database. The variant flags above choose which research agent runs.
+ * Flags that control WHERE a local run gets its topics and where its output
+ * goes. The variant flags above choose which research agent runs.
+ *
+ * A local run defaults to the review document and writes nothing to the site;
+ * `--publish` is what switches it to the database path.
  */
 export interface RunFlags {
   /**
-   * Work from src/manual-topics.ts instead of the `topics` table, and write
-   * nothing to the database — the original file-only testing behaviour.
+   * Work from src/manual-topics.ts instead of the `topics` table.
+   * Local runs write nothing to the database either way; this only changes
+   * where the topics come from.
    */
   manual: boolean;
-  /** Run the pipeline but skip saving articles; the queue is still updated. */
+  /**
+   * Opt a LOCAL run into the database path: claim topics off the queue, publish
+   * the articles, and record the outcome on the topic row — exactly what the
+   * cloud service does, and no .docx.
+   *
+   * Without it, `npm run research` reviews the agents in Word and touches
+   * nothing on the site. That default is deliberate: the automated pipeline is
+   * what publishes now, so a local run is for checking the agents, and the
+   * write path has to be asked for explicitly.
+   */
+  publish: boolean;
+  /** With --publish: run the agents but skip saving; the queue is still updated. */
   dryRun: boolean;
   /**
    * Save articles as `status: "review"` instead of publishing them.
@@ -71,12 +86,13 @@ export interface RunFlags {
   limit: number | null;
 }
 
-const BOOLEAN_FLAGS = ["--manual", "-m", "--dry-run", "--review"];
+const BOOLEAN_FLAGS = ["--manual", "-m", "--publish", "--dry-run", "--review"];
 /** Flags that consume the following argument (`--limit 5`). */
 const VALUE_FLAGS = ["--limit", "-n"];
 
 export function resolveFlags(argv: string[] = process.argv.slice(2)): RunFlags {
   const manual = argv.includes("--manual") || argv.includes("-m");
+  const publish = argv.includes("--publish");
   const dryRun = argv.includes("--dry-run");
   const review = argv.includes("--review");
 
@@ -93,7 +109,7 @@ export function resolveFlags(argv: string[] = process.argv.slice(2)): RunFlags {
     }
   }
 
-  return { manual, dryRun, review, limit };
+  return { manual, publish, dryRun, review, limit };
 }
 
 /**

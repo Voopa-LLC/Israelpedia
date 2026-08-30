@@ -2,11 +2,11 @@
 "use server";
 
 import { db } from "@/db";
-import { topics } from "@/db/schema";
+import { pipelineControl, topics } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth-guard";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -37,16 +37,24 @@ function topicId(formData: FormData): string {
  * `#` comments ignored. Duplicates (case-insensitive, against the unique index
  * on lower(topic)) are silently skipped, so pasting an overlapping list again
  * is safe.
+ *
+ * Topics added here go to the FRONT of the queue.
+ *
+ * A run claims by `priority DESC, created_at ASC` (see claimNextTopic), so a
+ * new topic at the default priority sorts behind every one of the thousands
+ * already waiting — added today, written months from now. The reason to type a
+ * topic in by hand is that you want it written, so each batch is inserted one
+ * step above the highest priority the table currently holds, which puts it next
+ * in line whatever else is queued.
  */
 export async function addTopics(formData: FormData) {
   const session = await requireAdmin();
   const userId = (session.user as any).id as string;
 
   const raw = (formData.get("topics") as string) ?? "";
-  const priority = Number(formData.get("priority")) || 0;
 
   const seen = new Set<string>();
-  const values = raw
+  const submitted = raw
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith("#"))
@@ -55,24 +63,67 @@ export async function addTopics(formData: FormData) {
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
-    })
-    .map((topic) => ({ topic, priority, addedBy: userId }));
+    });
 
   // Land on the Pending view: new topics are pending, and the default view
   // deliberately excludes that bucket, so otherwise you'd be told "Added 12
   // topics" while looking at a table that doesn't contain them.
-  if (values.length === 0) redirect("/admin/topics?status=pending&added=0");
+  if (submitted.length === 0) redirect("/admin/topics?status=pending&added=0");
+
+  /**
+   * One above the current maximum, evaluated INSIDE the insert rather than as a
+   * separate read. That keeps the whole add to a single statement against a
+   * single snapshot: every row in the batch lands on the same priority, and a
+   * concurrent add cannot slot itself in between a read and a write.
+   */
+  const frontOfQueue = sql<number>`(select coalesce(max(${topics.priority}), 0) + 1 from ${topics})`;
 
   const inserted = await db
     .insert(topics)
-    .values(values)
+    .values(submitted.map((topic) => ({ topic, priority: frontOfQueue, addedBy: userId })))
     .onConflictDoNothing()
     .returning({ id: topics.id });
 
   redirect(
     `/admin/topics?status=pending&added=${inserted.length}` +
-      `&skipped=${values.length - inserted.length}`
+      `&skipped=${submitted.length - inserted.length}`
   );
+}
+
+/**
+ * Start or stop the AI pipeline.
+ *
+ * The pipeline is a separate service on another host; nothing here can reach
+ * it. What this writes is the row it polls every few seconds (see
+ * worker/src/lib/pipeline-control.ts), so expect a short delay before the
+ * change takes hold — and check the panel, which reports what the worker is
+ * actually doing rather than what was asked of it.
+ *
+ * STOP MEANS "CLAIM NOTHING MORE", not "abandon what you are doing". A topic
+ * already being written is finished and published first: killing it mid-run
+ * would throw away research that has already been paid for, and leave the row
+ * marked `running` for the stale-topic sweep to find.
+ *
+ * The upsert is deliberate. The row is normally created by
+ * db/migrations/0003_pipeline_control.sql; if that has not been run, an admin
+ * pressing Start should create the switch rather than hit an error.
+ */
+export async function setPipelineEnabled(formData: FormData) {
+  const session = await requireAdmin();
+  const userId = (session.user as any).id as string;
+  const enabled = formData.get("enabled") === "true";
+
+  // `now()` rather than a JS Date: the panel reports these as "3 minutes ago"
+  // by subtracting in SQL, so the stamp has to come from the same clock.
+  await db
+    .insert(pipelineControl)
+    .values({ id: true, enabled, updatedAt: sql`now()`, updatedBy: userId })
+    .onConflictDoUpdate({
+      target: pipelineControl.id,
+      set: { enabled, updatedAt: sql`now()`, updatedBy: userId },
+    });
+
+  revalidatePath("/admin/topics");
 }
 
 /** Put a finished/failed topic back in the queue for another run. */
