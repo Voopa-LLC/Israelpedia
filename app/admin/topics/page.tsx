@@ -7,6 +7,7 @@ import Link from "next/link";
 import {
   addTopics,
   deleteTopic,
+  promoteTopic,
   retryTopic,
   setPipelineEnabled,
   skipTopic,
@@ -171,6 +172,7 @@ export default async function TopicsPage({
     page?: string;
     added?: string;
     skipped?: string;
+    promoted?: string;
   }>;
 }) {
   await requireAdmin();
@@ -195,6 +197,11 @@ export default async function TopicsPage({
         ? "activity"
         : null;
   const view: View = chosen ?? (q ? "all" : "activity");
+
+  // Named by promoteTopic's redirect so the row that just moved can be called
+  // out by name — it lands at the top of the pending list, which is usually a
+  // different page from the one the admin pressed the button on.
+  const promoted = (params.promoted ?? "").trim().slice(0, 120);
 
   const requested = Number(params.page);
   const page = Number.isFinite(requested) && requested >= 1 ? Math.floor(requested) : 1;
@@ -360,7 +367,9 @@ export default async function TopicsPage({
         navigation, which a server action's redirect() is. Harmless when the
         browser has already done it.
       */}
-      <ScrollToHash trigger={`${view}|${q}|${page}|${params.added ?? ""}`} />
+      <ScrollToHash
+        trigger={`${view}|${q}|${page}|${params.added ?? ""}|${promoted}`}
+      />
       <header className="mb-8">
         <span className="eyebrow">Editorial workspace</span>
         <h1 className="mt-1.5 font-display text-3xl font-bold text-ink">Topic queue</h1>
@@ -453,6 +462,13 @@ export default async function TopicsPage({
               ? `Added ${added} topic${added === 1 ? "" : "s"} to the front of the queue.`
               : "No new topics were added."}
             {skippedCount > 0 && ` ${skippedCount} were already queued.`}
+          </p>
+        )}
+
+        {promoted && (
+          <p className="mb-3 rounded-lg border border-brass/40 bg-brass/10 px-4 py-3 text-sm text-ink">
+            Moved <strong className="font-semibold">{promoted}</strong> to the front of the
+            queue — it is next in line.
           </p>
         )}
 
@@ -615,12 +631,29 @@ export default async function TopicsPage({
                         </form>
                       )}
                       {status === "pending" && (
-                        <form action={skipTopic}>
-                          <input type="hidden" name="id" value={t.id} />
-                          <button type="submit" className="font-medium text-muted hover:text-ink">
-                            Skip
-                          </button>
-                        </form>
+                        <>
+                          {/*
+                            `q` rides along so the redirect can put the admin
+                            back on the search they used to find this topic.
+                          */}
+                          <form action={promoteTopic}>
+                            <input type="hidden" name="id" value={t.id} />
+                            <input type="hidden" name="q" value={q} />
+                            <button
+                              type="submit"
+                              className="font-medium text-azure hover:text-techelet"
+                              title="Write this one next"
+                            >
+                              Move to front
+                            </button>
+                          </form>
+                          <form action={skipTopic}>
+                            <input type="hidden" name="id" value={t.id} />
+                            <button type="submit" className="font-medium text-muted hover:text-ink">
+                              Skip
+                            </button>
+                          </form>
+                        </>
                       )}
                       <form action={deleteTopic}>
                         <input type="hidden" name="id" value={t.id} />
