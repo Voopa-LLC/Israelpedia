@@ -60,11 +60,10 @@ export default function SuggestForm() {
         />
       </div>
 
-      <div className="flex items-center gap-3">
+      <div>
         <button type="submit" disabled={pending} className="btn btn-primary">
           {pending ? "Submitting…" : "Submit suggestion"}
         </button>
-        <span className="text-sm text-faint">Reviewed by a human editor.</span>
       </div>
     </form>
   );
