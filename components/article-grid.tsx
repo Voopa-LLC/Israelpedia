@@ -9,12 +9,10 @@ const PAGE_SIZE = 40;
 export default function ArticleGrid({
   initialArticles,
   initialHasMore,
-  lang,
   fetchMore,
 }: {
   initialArticles: ArticleCard[];
   initialHasMore: boolean;
-  lang: "en" | "he";
   fetchMore: (offset: number, limit: number) => Promise<ArticleCard[]>;
 }) {
   const [visible, setVisible] = useState(initialArticles);
@@ -39,67 +37,41 @@ export default function ArticleGrid({
   return (
     <>
       <ul className="grid gap-4 sm:grid-cols-2">
-        {visible.map((a) =>
-          lang === "he" ? (
-            <li key={a.id}>
-              <Link
-                href={`/he/article/${a.slug}`}
-                className="group flex h-full flex-col rounded-xl border border-hairline bg-card p-6 transition-all hover:border-techelet hover:shadow-[0_2px_20px_-8px_rgba(27,59,107,0.25)]"
-              >
-                <h3 className="font-display text-xl font-bold leading-snug text-ink transition-colors group-hover:text-techelet">
-                  {a.titleHe}
-                </h3>
-                {a.summaryHe && (
-                  <p className="mt-2 line-clamp-3 flex-1 text-[0.95rem] leading-relaxed text-muted">
-                    {a.summaryHe}
-                  </p>
-                )}
-                <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-azure">
-                  קריאת המאמר
-                  <span aria-hidden="true" className="transition-transform group-hover:-translate-x-0.5">
-                    ←
-                  </span>
+        {visible.map((a) => (
+          <li key={a.id}>
+            <Link
+              href={`/article/${a.slug}`}
+              className="group flex h-full flex-col rounded-xl border border-hairline bg-card p-6 transition-all hover:border-techelet hover:shadow-[0_2px_20px_-8px_rgba(27,59,107,0.25)]"
+            >
+              <h3 className="font-display text-xl font-bold leading-snug text-ink transition-colors group-hover:text-techelet">
+                {a.title}
+              </h3>
+              {a.summary && (
+                <p className="mt-2 line-clamp-3 flex-1 text-[0.95rem] leading-relaxed text-muted">
+                  {a.summary}
+                </p>
+              )}
+              <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-azure">
+                Read article
+                <span aria-hidden="true" className="transition-transform group-hover:translate-x-0.5">
+                  →
                 </span>
-              </Link>
-            </li>
-          ) : (
-            <li key={a.id}>
-              <Link
-                href={`/article/${a.slug}`}
-                className="group flex h-full flex-col rounded-xl border border-hairline bg-card p-6 transition-all hover:border-techelet hover:shadow-[0_2px_20px_-8px_rgba(27,59,107,0.25)]"
-              >
-                <h3 className="font-display text-xl font-bold leading-snug text-ink transition-colors group-hover:text-techelet">
-                  {a.title}
-                </h3>
-                {a.summary && (
-                  <p className="mt-2 line-clamp-3 flex-1 text-[0.95rem] leading-relaxed text-muted">
-                    {a.summary}
-                  </p>
-                )}
-                <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-azure">
-                  Read article
-                  <span aria-hidden="true" className="transition-transform group-hover:translate-x-0.5">
-                    →
-                  </span>
-                </span>
-              </Link>
-            </li>
-          )
-        )}
+              </span>
+            </Link>
+          </li>
+        ))}
       </ul>
 
       {(hasMore || canCollapse) && (
         <div className="mt-8 flex justify-center gap-3">
           {canCollapse && (
             <button onClick={showLess} className="btn btn-ghost">
-              {lang === "he" ? "הצג פחות" : "Show less"}
+              Show less
             </button>
           )}
           {hasMore && (
             <button onClick={loadMore} disabled={isPending} className="btn btn-secondary">
-              {isPending
-                ? lang === "he" ? "טוען..." : "Loading…"
-                : lang === "he" ? "הצג עוד מאמרים" : "Show more articles"}
+              {isPending ? "Loading…" : "Show more articles"}
             </button>
           )}
         </div>

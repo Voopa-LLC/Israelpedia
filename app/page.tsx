@@ -24,8 +24,6 @@ export default async function Home() {
       slug: articles.slug,
       title: articles.title,
       summary: articles.summary,
-      titleHe: articles.titleHe,
-      summaryHe: articles.summaryHe,
     })
     .from(articles)
     .where(eq(articles.status, "published"))
@@ -107,7 +105,6 @@ export default async function Home() {
           <ArticleGrid
             initialArticles={initialArticles}
             initialHasMore={initialHasMore}
-            lang="en"
             fetchMore={fetchMoreArticles}
           />
         ) : (

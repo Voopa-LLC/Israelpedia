@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import Wordmark from "./wordmark";
 import ThemeToggle from "./theme-toggle";
-import LangToggle from "./lang-toggle";
 
 const SearchIcon = () => (
   <svg
@@ -28,15 +27,10 @@ function SearchFieldInner({
 }) {
   const pathname = usePathname();
   const params = useSearchParams();
-  const isHebrew = pathname.startsWith("/he");
-  const searchAction = isHebrew ? "/he/search" : "/search";
-  const currentQuery =
-    pathname === "/search" || pathname === "/he/search"
-      ? (params.get("q") ?? "")
-      : "";
+  const currentQuery = pathname === "/search" ? (params.get("q") ?? "") : "";
 
   return (
-    <form action={searchAction} method="get" role="search" className={`relative ${className}`}>
+    <form action="/search" method="get" role="search" className={`relative ${className}`}>
       <SearchIcon />
       <input
         key={currentQuery}
@@ -44,8 +38,8 @@ function SearchFieldInner({
         name="q"
         defaultValue={currentQuery}
         autoFocus={autoFocus}
-        placeholder={isHebrew ? "חיפוש בישראלפדיה" : "Search IsraelPedia"}
-        aria-label={isHebrew ? "חיפוש מאמרים" : "Search articles"}
+        placeholder="Search IsraelPedia"
+        aria-label="Search articles"
         className="input !pl-9"
       />
     </form>
@@ -81,26 +75,24 @@ function SearchField({
 
 export default function HeaderShell({
   isAdmin,
-  homePath = "/",
   authSlot,
   suggestDesktop,
   suggestMobile,
 }: {
   isAdmin: boolean;
-  homePath?: string;
   authSlot: ReactNode;
   suggestDesktop: ReactNode;
   suggestMobile: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
-  const isHome = pathname === "/" || pathname === "/he";
+  const isHome = pathname === "/";
 
   return (
     <header className="sticky top-0 z-40 border-b border-hairline bg-paper/85 backdrop-blur supports-[backdrop-filter]:bg-paper/70">
       <div className="rule-brass" />
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6">
-        <Wordmark href={homePath} />
+        <Wordmark />
 
         {/* Desktop search — hidden on homepages */}
         {!isHome && (
@@ -119,7 +111,6 @@ export default function HeaderShell({
             </Link>
           )}
           <span className="mx-1 h-5 w-px bg-hairline" aria-hidden="true" />
-          <LangToggle />
           <ThemeToggle />
           <div className="ml-1">{authSlot}</div>
         </nav>
@@ -147,10 +138,6 @@ export default function HeaderShell({
       {open && (
         <div className="border-t border-hairline bg-paper px-4 pb-5 pt-4 md:hidden">
           <SearchField className="mb-4 w-full" />
-          <div className="mb-3 flex items-center justify-between border-b border-hairline pb-3">
-            <span className="text-sm font-medium text-muted">Language</span>
-            <LangToggle />
-          </div>
           <nav className="flex flex-col gap-1" onClick={() => setOpen(false)}>
             {suggestMobile}
             {isAdmin && (

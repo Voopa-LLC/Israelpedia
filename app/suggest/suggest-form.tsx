@@ -41,7 +41,7 @@ export default function SuggestForm() {
           type="text"
           required
           dir="auto"
-          placeholder="e.g. Golda Meir, חנוכה, the Dead Sea Scrolls"
+          placeholder="e.g. Golda Meir, Hanukkah, the Dead Sea Scrolls"
           className="input"
         />
       </div>

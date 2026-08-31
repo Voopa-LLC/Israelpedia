@@ -419,8 +419,13 @@
 }
 
 /* ------------------------------------------------------------------ */
-/*  RTL overrides — Hebrew pages (/he/*)                              */
-/*  Applied when a [dir="rtl"] ancestor is present (he-layout div).  */
+/*  RTL overrides — kept for Hebrew, currently unused by any page.     */
+/*                                                                     */
+/*  The public Hebrew site (/he/*) was removed while every article is  */
+/*  English-only; the Hebrew columns, the admin panel's Hebrew fields  */
+/*  and this styling are deliberately kept so bringing it back is a    */
+/*  matter of re-adding the routes, not rebuilding the typography.     */
+/*  Applies wherever a [dir="rtl"] ancestor is present (.he-layout).   */
 /* ------------------------------------------------------------------ */
 
 /* Hebrew layout uses Frank Ruhl Libre for both display and body text */
