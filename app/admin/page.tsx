@@ -2,10 +2,21 @@
 import { requireAdmin } from "@/lib/auth-guard";
 import { db } from "@/db";
 import { articleQaReports, articles, suggestions, users } from "@/db/schema";
-import { eq, desc, ilike, sql } from "drizzle-orm";
+import { asc, eq, desc, ilike, inArray, sql } from "drizzle-orm";
 import Link from "next/link";
 import { acceptSuggestion, rejectSuggestion } from "./actions";
 import StatusControl from "./status-control";
+
+/**
+ * Articles per page.
+ *
+ * This list used to render EVERY article in one table, and `select()` with no
+ * column list meant each row dragged its full Markdown body along — tens of
+ * kilobytes apiece. At a thousand articles that is megabytes of body text
+ * fetched, serialised and shipped to build a list that never displays it. The
+ * page now reads one screenful, of only the columns the table actually shows.
+ */
+const PAGE_SIZE = 50;
 
 // Sort order in the admin list: needs-attention first, archived last.
 const STATUS_ORDER = sql`CASE ${articles.status}
@@ -15,40 +26,87 @@ const STATUS_ORDER = sql`CASE ${articles.status}
   WHEN 'archived' THEN 3
   ELSE 4 END`;
 
+/**
+ * A link to one page of the list, keeping the current search.
+ *
+ * Page 1 and an empty search are left out of the URL, so the plain `/admin`
+ * link stays clean and "Clear" has something to go back to.
+ */
+function hrefFor(page: number, q: string): string {
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  if (page > 1) params.set("page", String(page));
+  const query = params.toString();
+  return `/admin${query ? `?${query}` : ""}`;
+}
+
 export default async function AdminPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; page?: string }>;
 }) {
   await requireAdmin();
-  const { q } = await searchParams;
-  const query = q?.trim();
+  const params = await searchParams;
+  const query = params.q?.trim() ?? "";
 
-  const allArticles = await db
-    .select()
-    .from(articles)
-    .where(query ? ilike(articles.title, `%${query}%`) : undefined)
-    .orderBy(STATUS_ORDER, desc(articles.updatedAt));
+  const requested = Number(params.page);
+  const page = Number.isFinite(requested) && requested >= 1 ? Math.floor(requested) : 1;
+
+  const where = query ? ilike(articles.title, `%${query}%`) : undefined;
+
+  // The rows and the total are independent — one round trip to Neon, not two.
+  const [rows, totals] = await Promise.all([
+    db
+      .select({
+        id: articles.id,
+        slug: articles.slug,
+        title: articles.title,
+        status: articles.status,
+        updatedAt: articles.updatedAt,
+        // Just the flag the "HE" badge needs. Reading body_he itself would put
+        // a second full article body on every row.
+        hasHebrew: sql<boolean>`(${articles.bodyHe} IS NOT NULL)`,
+      })
+      .from(articles)
+      .where(where)
+      // `id` last so the sort is total: without a unique tiebreaker, two rows
+      // sharing a status and an updated_at could swap places between requests,
+      // hiding one from a page and showing another twice.
+      .orderBy(STATUS_ORDER, desc(articles.updatedAt), asc(articles.id))
+      .limit(PAGE_SIZE)
+      .offset((page - 1) * PAGE_SIZE),
+    db.select({ n: sql<number>`count(*)::int` }).from(articles).where(where),
+  ]);
+
+  const total = totals[0]?.n ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const firstOnPage = (page - 1) * PAGE_SIZE + 1;
+  const lastOnPage = firstOnPage + rows.length - 1;
 
   /**
-   * Which articles have a stored QA report, and what the newest one says.
+   * Which of the articles ON THIS PAGE have a stored QA report, and what the
+   * newest one says.
    *
    * Only articles the pipeline produced AFTER `article_qa_reports` existed have
    * a row here — nothing was backfilled — so the "QA report" action is a link
-   * for those and inert text for the rest. Reports are few and the columns are
-   * narrow (the jsonb bodies are deliberately left out), so one ordered read
-   * and a map beats a correlated subquery per row.
+   * for those and inert text for the rest. Scoped to the visible rows: reading
+   * every report ever written to annotate fifty of them is the same unbounded
+   * growth the article query just stopped doing.
    */
-  const qaReports = await db
-    .select({
-      articleId: articleQaReports.articleId,
-      verdict: articleQaReports.verdict,
-      changeCount: articleQaReports.changeCount,
-      issueCount: articleQaReports.issueCount,
-      createdAt: articleQaReports.createdAt,
-    })
-    .from(articleQaReports)
-    .orderBy(desc(articleQaReports.createdAt));
+  const visibleIds = rows.map((r) => r.id);
+  const qaReports = visibleIds.length
+    ? await db
+        .select({
+          articleId: articleQaReports.articleId,
+          verdict: articleQaReports.verdict,
+          changeCount: articleQaReports.changeCount,
+          issueCount: articleQaReports.issueCount,
+          createdAt: articleQaReports.createdAt,
+        })
+        .from(articleQaReports)
+        .where(inArray(articleQaReports.articleId, visibleIds))
+        .orderBy(desc(articleQaReports.createdAt))
+    : [];
 
   const latestQa = new Map<string, (typeof qaReports)[number]>();
   // Newest first, so the first row seen for an article is the one to show.
@@ -94,7 +152,7 @@ export default async function AdminPage({
           <input
             name="q"
             type="search"
-            defaultValue={query ?? ""}
+            defaultValue={query}
             placeholder="Search articles…"
             className="input !pl-9"
           />
@@ -103,9 +161,9 @@ export default async function AdminPage({
 
       {query && (
         <p className="mb-3 text-sm text-muted">
-          {allArticles.length === 0
+          {total === 0
             ? `No articles matching “${query}”.`
-            : `${allArticles.length} article${allArticles.length === 1 ? "" : "s"} matching “${query}”.`}
+            : `${total} article${total === 1 ? "" : "s"} matching “${query}”.`}
           {" "}
           <Link href="/admin" className="link">Clear</Link>
         </p>
@@ -123,7 +181,7 @@ export default async function AdminPage({
             </tr>
           </thead>
           <tbody>
-            {allArticles.map((a) => {
+            {rows.map((a) => {
               const qa = latestQa.get(a.id);
               return (
                 <tr key={a.id} className="border-b border-hairline last:border-0 hover:bg-paper/50">
@@ -136,9 +194,9 @@ export default async function AdminPage({
                         {a.title}
                       </Link>
                       <span
-                        title={a.bodyHe ? "Has Hebrew version" : "No Hebrew version yet"}
+                        title={a.hasHebrew ? "Has Hebrew version" : "No Hebrew version yet"}
                         className={`shrink-0 rounded px-1 py-px text-[0.65rem] font-bold tracking-wide ${
-                          a.bodyHe ? "text-brass" : "text-faint"
+                          a.hasHebrew ? "text-brass" : "text-faint"
                         }`}
                       >
                         HE
@@ -186,16 +244,59 @@ export default async function AdminPage({
                 </tr>
               );
             })}
-            {allArticles.length === 0 && (
+            {rows.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-4 py-10 text-center text-muted">
-                  {query ? "No matching articles." : "No articles yet — create your first one."}
+                  {page > 1 ? (
+                    <>
+                      Nothing on page {page}.{" "}
+                      <Link href={hrefFor(1, query)} className="link">
+                        Back to the first page
+                      </Link>
+                    </>
+                  ) : query ? (
+                    "No matching articles."
+                  ) : (
+                    "No articles yet — create your first one."
+                  )}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Pager */}
+      {total > 0 && (
+        <nav className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+          <p className="text-muted">
+            {rows.length > 0
+              ? `Showing ${firstOnPage}–${lastOnPage} of ${total} article${total === 1 ? "" : "s"}`
+              : `${total} article${total === 1 ? "" : "s"}`}
+          </p>
+          {pageCount > 1 && (
+            <div className="flex items-center gap-3">
+              {page > 1 ? (
+                <Link href={hrefFor(page - 1, query)} className="font-medium text-azure hover:text-techelet">
+                  ← Previous
+                </Link>
+              ) : (
+                <span className="text-faint">← Previous</span>
+              )}
+              <span className="text-muted">
+                Page {Math.min(page, pageCount)} of {pageCount}
+              </span>
+              {page < pageCount ? (
+                <Link href={hrefFor(page + 1, query)} className="font-medium text-azure hover:text-techelet">
+                  Next →
+                </Link>
+              ) : (
+                <span className="text-faint">Next →</span>
+              )}
+            </div>
+          )}
+        </nav>
+      )}
 
       {/* Suggestions queue */}
       <section id="suggestions" className="mt-12">

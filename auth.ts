@@ -15,6 +15,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     sessionsTable: sessions,
     verificationTokensTable: verificationTokens,
   }),
+  // Auth.js only trusts the request's Host header when it detects Vercel, when
+  // NODE_ENV is not "production", or when told to. So a LOCAL production build
+  // (`npm run build && npm start`) failed every /api/auth/* route with
+  // UntrustedHost. Setting it here rather than in .env keeps the fix in the
+  // repo instead of on one machine. No change on Vercel, which already trusts
+  // the host automatically.
+  trustHost: true,
   // Credentials provider requires JWT sessions — database sessions are not supported for credentials auth.
   // The adapter still manages users and OAuth accounts in the DB; only the session itself is a JWT cookie.
   session: { strategy: "jwt" },
