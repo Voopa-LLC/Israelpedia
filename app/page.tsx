@@ -49,7 +49,7 @@ export default async function Home() {
               <IpLockup />
             </h1>
             <p className="hp-tagline mt-3">
-              The online library of Israel &amp; the Jewish people
+              The online encyclopedia of Israel &amp; the Jewish people
             </p>
 
             <form
