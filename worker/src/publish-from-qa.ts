@@ -28,6 +28,7 @@ import { topics } from "../../db/schema";
 import type { QAReport } from "./agents/qa";
 import { closeDb, getDb } from "./lib/db";
 import { saveArticle } from "./lib/save-article";
+import { saveQaReport } from "./lib/save-qa-report";
 import { renderArticle } from "./lib/to-markdown";
 
 interface Options {
@@ -146,6 +147,24 @@ async function main(): Promise<void> {
         `    ${saved.created ? "created" : "updated"} /article/${saved.slug} ` +
           `(${saved.referenceCount} references, ${status})`
       );
+
+      // Store the report itself, so /admin/qa/<slug> shows the changes QA made
+      // and the issues it left — the same record a live pipeline run leaves
+      // behind. The article is already committed here, so a failure must not
+      // turn a good publish into a failed one: log it and carry on.
+      try {
+        await saveQaReport({
+          articleId: saved.articleId,
+          topicId: row?.id ?? null,
+          report,
+          // These reports come from output/qa/, the unsuffixed Perplexity paths.
+          researchVariant: "perplexity",
+          savedStatus: status,
+        });
+        console.log(`    QA report stored → /admin/qa/${saved.slug}`);
+      } catch (err) {
+        console.error(`    NOTE: article saved, but its QA report was not: ${(err as Error).message}`);
+      }
 
       if (row) {
         await getDb()
