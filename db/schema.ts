@@ -32,6 +32,8 @@ export const users = pgTable("users", {
   emailVerified: timestamp("email_verified", { mode: "date" }),
   image: text("image"),
   role: userRole("role").notNull().default("reader"),
+  // Unused since email + password sign-in was removed (2026-09-01). Kept, like
+  // the Hebrew columns, so restoring the flow is not a rebuild from scratch.
   hashedPassword: text("hashed_password"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -262,6 +264,8 @@ export const pipelineControl = pgTable("pipeline_control", {
   singleRow: check("pipeline_control_single_row", sql`${t.id}`),
 }));
 
+// Unused since email + password sign-in was removed (2026-09-01) — nothing
+// reads or writes this table now. Kept so the reset flow can come back.
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

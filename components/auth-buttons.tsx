@@ -38,7 +38,7 @@ export default async function AuthButtons() {
         Sign in
       </Link>
       <Link href="/register" className="btn btn-primary">
-        Register
+        Sign up
       </Link>
     </div>
   );

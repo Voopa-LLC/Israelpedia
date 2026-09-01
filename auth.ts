@@ -1,12 +1,10 @@
 // auth.ts
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
-import Credentials from "next-auth/providers/credentials";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { db } from "./db";
 import { users, accounts, sessions, verificationTokens } from "./db/schema";
 import { eq } from "drizzle-orm";
-import bcrypt from "bcryptjs";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: DrizzleAdapter(db, {
@@ -22,27 +20,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   // repo instead of on one machine. No change on Vercel, which already trusts
   // the host automatically.
   trustHost: true,
-  // Credentials provider requires JWT sessions — database sessions are not supported for credentials auth.
-  // The adapter still manages users and OAuth accounts in the DB; only the session itself is a JWT cookie.
+  // JWT sessions rather than database sessions. Google is now the only provider,
+  // so a database strategy would work too, but switching would invalidate every
+  // signed-in cookie and move the role lookup off the token — no reason to.
+  // The adapter still manages users and OAuth accounts in the DB.
   session: { strategy: "jwt" },
-  providers: [
-    Google({ allowDangerousEmailAccountLinking: true }),
-    Credentials({
-      async authorize(credentials) {
-        const email = credentials.email as string;
-        const password = credentials.password as string;
-        if (!email || !password) return null;
-        const [user] = await db
-          .select()
-          .from(users)
-          .where(eq(users.email, email.toLowerCase()));
-        if (!user || !user.hashedPassword) return null;
-        const valid = await bcrypt.compare(password, user.hashedPassword);
-        if (!valid) return null;
-        return { id: user.id, email: user.email, name: user.name, image: user.image };
-      },
-    }),
-  ],
+  // Google is the only way in. Email + password was removed on 2026-09-01; the
+  // `hashed_password` column and `password_reset_tokens` table are kept in the
+  // schema so bringing it back does not mean rebuilding it.
+  providers: [Google({ allowDangerousEmailAccountLinking: true })],
   pages: {
     signIn: "/signin",
   },
