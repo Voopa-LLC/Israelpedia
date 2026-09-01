@@ -99,7 +99,7 @@ function HomeHeader({
 
   return (
     <header className="hp-header sticky top-0 z-40">
-      <div className="hp-shell flex h-16 items-center justify-between gap-4">
+      <div className="ap-header-shell flex h-16 items-center justify-between gap-4">
         <span className="hp-version">Version_01</span>
 
         <nav className="hidden items-center gap-1 md:flex">
@@ -130,7 +130,7 @@ function HomeHeader({
 
       {open && (
         <div
-          className="border-t px-6 pb-5 pt-4 md:hidden"
+          className="border-t px-7 pb-5 pt-4 md:hidden"
           style={{ borderColor: "var(--hp-border)", backgroundColor: "var(--hp-surface)" }}
         >
           <nav className="flex flex-col items-start gap-2" onClick={() => setOpen(false)}>
