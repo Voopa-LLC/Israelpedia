@@ -1,7 +1,63 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+const FOOTER_LINKS = [
+  { label: "About", href: "/about" },
+  { label: "Privacy Policy", href: "/privacy" },
+  { label: "Terms of Use", href: "/terms" },
+  { label: "Contact Us", href: "/contact" },
+];
+
+/**
+ * The home page's own footer. `tinted` gives it its own background so it
+ * separates from the page above — the article page needs that, since its body
+ * is white to the edge; the home page already has a coloured band above it.
+ */
+function HomeFooter({ year, tinted = false }: { year: number; tinted?: boolean }) {
+  return (
+    <footer className={`hp-footer${tinted ? " is-tinted" : ""}`}>
+      <div className="hp-shell grid gap-8 pb-6 pt-9 md:grid-cols-[1.4fr_1fr]">
+        <p className="hp-footer-text max-w-[26rem]">
+          IsraelPedia is an educational online resource about the Jewish people
+          and Israel, bringing reliable, evidence-based information together in
+          one place — from ancient history to the present day.
+        </p>
+
+        <nav className="flex flex-col gap-2 md:justify-self-end" aria-label="Footer">
+          {FOOTER_LINKS.map((l) => (
+            <Link key={l.href} href={l.href} className="hp-footer-link">
+              {l.label}
+            </Link>
+          ))}
+        </nav>
+      </div>
+
+      <div className="hp-shell pb-8">
+        <span className="hp-copyright">© {year} IsraelPedia</span>
+      </div>
+    </footer>
+  );
+}
 
 export default function SiteFooter() {
   const year = new Date().getFullYear();
+  const pathname = usePathname();
+
+  // Article pages share the home page's footer; every other route keeps the
+  // original site footer.
+  if (pathname === "/") return <HomeFooter year={year} />;
+  if (
+    pathname.startsWith("/article/") ||
+    pathname === "/search" ||
+    pathname === "/suggest" ||
+    pathname === "/signin" ||
+    pathname === "/register"
+  ) {
+    return <HomeFooter year={year} tinted />;
+  }
+
   return (
     <footer className="mt-20 border-t border-hairline bg-card">
       <div className="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 md:grid-cols-[1.5fr_1fr_1fr]">

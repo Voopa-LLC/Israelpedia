@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Frank_Ruhl_Libre, Source_Serif_4, Inter, Geist_Mono } from "next/font/google";
+import { Frank_Ruhl_Libre, Source_Serif_4, Inter, Geist_Mono, Archivo } from "next/font/google";
 import "./globals.css";
 import SiteHeader from "@/components/site-header";
 import SiteFooter from "@/components/site-footer";
@@ -26,6 +26,16 @@ const inter = Inter({
 const geistMono = Geist_Mono({
   variable: "--font-mono",
   subsets: ["latin"],
+  display: "swap",
+});
+
+// Home page only. A heavy grotesque with real italics — the home design leans
+// on italic display type, which the serif --font-display cannot do. Declaring
+// the variable here costs other pages nothing: only .hp-* classes read it.
+const archivo = Archivo({
+  variable: "--font-archivo",
+  subsets: ["latin"],
+  style: ["normal", "italic"],
   display: "swap",
 });
 
@@ -59,7 +69,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${frankRuhl.variable} ${sourceSerif.variable} ${inter.variable} ${geistMono.variable} h-full`}
+      className={`${frankRuhl.variable} ${sourceSerif.variable} ${inter.variable} ${geistMono.variable} ${archivo.variable} h-full`}
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />

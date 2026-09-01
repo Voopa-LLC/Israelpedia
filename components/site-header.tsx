@@ -14,12 +14,17 @@ export default async function SiteHeader() {
   const isLoggedIn = !!session?.user;
   const isAdmin = (session?.user as any)?.role === "admin";
 
+  // Both treatments are rendered here because the slots need server-side auth,
+  // and HeaderShell — which knows the route — picks one. The home page uses the
+  // *Home slots; every other page uses the originals, unchanged.
   return (
     <HeaderShell
       isAdmin={isAdmin}
       authSlot={<AuthButtons />}
+      authSlotHome={<AuthButtons variant="home" />}
       suggestDesktop={<SuggestLink isLoggedIn={isLoggedIn} variant="desktop" />}
       suggestMobile={<SuggestLink isLoggedIn={isLoggedIn} variant="mobile" />}
+      suggestHome={<SuggestLink isLoggedIn={isLoggedIn} variant="home" />}
     />
   );
 }

@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from "react";
 
-export default function ThemeToggle() {
+export default function ThemeToggle({
+  className = "inline-flex h-9 w-9 items-center justify-center rounded-md text-muted transition-colors hover:text-techelet hover:bg-hairline/40",
+}: {
+  className?: string;
+}) {
   const [dark, setDark] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -47,7 +51,7 @@ export default function ThemeToggle() {
       onClick={toggle}
       aria-label={mounted && dark ? "Switch to light mode" : "Switch to dark mode"}
       title={mounted && dark ? "Light mode" : "Dark mode"}
-      className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted transition-colors hover:text-techelet hover:bg-hairline/40"
+      className={className}
     >
       {/* Sun when in dark (click → light); moon when in light (click → dark) */}
       {mounted && dark ? (

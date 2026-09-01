@@ -8,6 +8,7 @@ export type ArticleCard = {
   slug: string;
   title: string | null;
   summary: string | null;
+  category: string | null;
 };
 
 export async function fetchMoreArticles(offset: number, limit: number): Promise<ArticleCard[]> {
@@ -17,6 +18,7 @@ export async function fetchMoreArticles(offset: number, limit: number): Promise<
       slug: articles.slug,
       title: articles.title,
       summary: articles.summary,
+      category: articles.category,
     })
     .from(articles)
     .where(eq(articles.status, "published"))

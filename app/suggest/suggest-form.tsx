@@ -8,14 +8,14 @@ export default function SuggestForm() {
 
   if (state?.success) {
     return (
-      <div className="flex flex-col items-start gap-3 py-4 text-center sm:items-center sm:text-center">
-        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-techelet/10 text-techelet">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <div className="sg-done">
+        <span className="sg-done-mark">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M20 6 9 17l-5-5" />
           </svg>
         </span>
-        <h2 className="font-display text-2xl font-bold text-ink">Suggestion received</h2>
-        <p className="max-w-sm text-muted">
+        <h2 className="sg-done-title">Suggestion received</h2>
+        <p className="sg-done-body">
           Thanks — your topic is in our review queue. If we cover it, you’ll be
           able to read it right here.
         </p>
@@ -26,14 +26,12 @@ export default function SuggestForm() {
   return (
     <form action={action} className="flex flex-col gap-6">
       {state && !state.success && (
-        <p className="rounded-md border border-[#b3261e]/30 bg-[#b3261e]/8 px-4 py-3 text-sm font-medium text-[#b3261e]">
-          {state.error}
-        </p>
+        <p className="sg-error">{state.error}</p>
       )}
 
       <div>
-        <label htmlFor="topic" className="field-label">
-          Topic <span className="text-brass">*</span>
+        <label htmlFor="topic" className="sg-label">
+          Topic <span className="sg-required">*</span>
         </label>
         <input
           id="topic"
@@ -42,26 +40,25 @@ export default function SuggestForm() {
           required
           dir="auto"
           placeholder="e.g. Golda Meir, Hanukkah, the Dead Sea Scrolls"
-          className="input"
+          className="sg-input"
         />
       </div>
 
       <div>
-        <label htmlFor="rationale" className="field-label">
-          Why should we cover this?{" "}
-          <span className="field-hint">(optional)</span>
+        <label htmlFor="rationale" className="sg-label">
+          Why should we cover this? <span className="sg-hint">(optional)</span>
         </label>
         <textarea
           id="rationale"
           name="rationale"
           rows={4}
           placeholder="A sentence or two on why this topic matters and what it should include."
-          className="textarea"
+          className="sg-textarea"
         />
       </div>
 
       <div>
-        <button type="submit" disabled={pending} className="btn btn-primary">
+        <button type="submit" disabled={pending} className="hp-btn sg-submit">
           {pending ? "Submitting…" : "Submit suggestion"}
         </button>
       </div>

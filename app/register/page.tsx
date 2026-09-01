@@ -9,36 +9,29 @@ export default async function RegisterPage({
   const { callbackUrl } = await searchParams;
 
   return (
-    <main
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        minHeight: "60vh",
-        padding: "2rem",
-      }}
-    >
-      <div style={{ width: "100%", maxWidth: 400 }}>
-        <h1 style={{ marginBottom: "0.25rem" }}>Create an account</h1>
-        <p style={{ color: "#555", marginBottom: "2rem" }}>
-          Join IsraelPedia to suggest article topics.
+    <main className="au-page">
+      <div className="au-card">
+        <p className="hp-eyebrow">Join the library</p>
+        <h1 className="au-title">Create an account</h1>
+        <p className="au-sub">
+          An account lets you suggest topics for the library.
         </p>
 
-        <GoogleAuthButton label="Sign up with Google" redirectTo={callbackUrl || "/"} />
+        <div className="au-action">
+          <GoogleAuthButton label="Sign up with Google" redirectTo={callbackUrl || "/"} />
+        </div>
 
-        <p style={{ marginTop: "1.5rem", textAlign: "center", color: "#555", fontSize: "0.9rem" }}>
+        <p className="au-alt">
           Already have an account?{" "}
-          <Link href="/signin" style={{ color: "#0070f3" }}>
+          <Link href="/signin" className="au-alt-link">
             Sign in
           </Link>
         </p>
-        <p style={{ textAlign: "center", marginTop: "0.5rem" }}>
-          <Link href="/" style={{ color: "#aaa", fontSize: "0.85rem" }}>
-            ← Back to IsraelPedia
-          </Link>
-        </p>
       </div>
+
+      <Link href="/" className="au-back">
+        ← Back to IsraelPedia
+      </Link>
     </main>
   );
 }

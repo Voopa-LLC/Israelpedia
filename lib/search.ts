@@ -7,6 +7,7 @@ export interface SearchResult {
   slug: string;
   title: string;
   summary: string | null;
+  category: string | null;
   titleHe: string | null;
   summaryHe: string | null;
   hasHebrew: boolean;
@@ -21,6 +22,8 @@ const resultCols = {
   slug: articles.slug,
   title: articles.title,
   summary: articles.summary,
+  // Carried so a result card can show the same chip as the home page.
+  category: articles.category,
   titleHe: articles.titleHe,
   summaryHe: articles.summaryHe,
   hasHebrew: sql<boolean>`(${articles.bodyHe} IS NOT NULL)`,
