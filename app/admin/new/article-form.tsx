@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { createArticle } from "../actions";
+import { ARTICLE_CATEGORIES, categoryLabel } from "@/lib/article-categories";
 
 export default function ArticleForm() {
   const [refs, setRefs] = useState([{ url: "", title: "", source: "" }]);
@@ -100,13 +101,29 @@ export default function ArticleForm() {
       </section>
 
       {/* ── Metadata ─────────────────────────────────────────────── */}
-      <div>
-        <label htmlFor="status" className="field-label">Status</label>
-        <select id="status" name="status" className="select max-w-xs">
-          <option value="draft">Draft</option>
-          <option value="review">Review</option>
-          <option value="published">Published</option>
-        </select>
+      <div className="flex flex-col gap-5 sm:flex-row sm:gap-6">
+        <div className="sm:w-56">
+          <label htmlFor="status" className="field-label">Status</label>
+          <select id="status" name="status" className="select">
+            <option value="draft">Draft</option>
+            <option value="review">Review</option>
+            <option value="published">Published</option>
+          </select>
+        </div>
+
+        <div className="sm:w-56">
+          <label htmlFor="category" className="field-label">
+            Category <span className="field-hint">(the chip on article cards)</span>
+          </label>
+          {/* The same four the Research Agent uses, so a hand-written article
+              and a generated one are labelled identically. */}
+          <select id="category" name="category" defaultValue="" className="select">
+            <option value="">— None —</option>
+            {ARTICLE_CATEGORIES.map((c) => (
+              <option key={c} value={c}>{categoryLabel(c)}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* ── References ───────────────────────────────────────────── */}

@@ -4,6 +4,7 @@
 import { db } from "@/db";
 import { articles, articleReferences, articleRevisions, suggestions } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth-guard";
+import { parseCategory } from "@/lib/article-categories";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
@@ -30,6 +31,9 @@ export async function createArticle(formData: FormData) {
   const summary = nullIfEmpty(formData.get("summary") as string);
   const body = (formData.get("body") as string)?.trim();
   const status = (formData.get("status") as string) || "draft";
+  // Anything that isn't one of the four known categories becomes null rather
+  // than being trusted into the column — the form is not the only way to POST.
+  const category = parseCategory(formData.get("category"));
 
   const titleHe = nullIfEmpty(formData.get("titleHe") as string);
   const summaryHe = nullIfEmpty(formData.get("summaryHe") as string);
@@ -55,6 +59,7 @@ export async function createArticle(formData: FormData) {
         summaryHe,
         bodyHe,
         status: status as any,
+        category,
         origin: "human",
         createdBy: userId,
         publishedAt: status === "published" ? new Date() : null,
@@ -102,6 +107,7 @@ export async function updateArticle(formData: FormData) {
   const summary    = nullIfEmpty(formData.get("summary") as string);
   const body       = (formData.get("body") as string)?.trim();
   const status     = (formData.get("status") as string) || "draft";
+  const category   = parseCategory(formData.get("category"));
   const editorNote = nullIfEmpty(formData.get("editorNote") as string);
 
   const titleHe   = nullIfEmpty(formData.get("titleHe") as string);
@@ -140,6 +146,9 @@ export async function updateArticle(formData: FormData) {
         summaryHe,
         bodyHe,
         status: status as any,
+        // Editable for AI articles too: this is where an admin corrects the
+        // category the Research Agent picked. "— None —" clears it.
+        category,
         updatedAt: new Date(),
         publishedAt:
           status === "published" && !current.publishedAt ? new Date() : current.publishedAt,

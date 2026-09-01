@@ -114,6 +114,9 @@ export async function saveArticle(input: SaveArticleInput): Promise<SaveArticleR
           summary: rendered.summary || null,
           body: rendered.body,
           status: input.status,
+          // Re-runs refresh it too, so an article created before the category
+          // was stored stops being null the next time its topic is processed.
+          category: input.article.category,
           updatedAt: new Date(),
           // First publish stamps the date; a re-run keeps the original, so the
           // homepage ordering doesn't jump every time a topic is re-processed.
@@ -147,12 +150,13 @@ export async function saveArticle(input: SaveArticleInput): Promise<SaveArticleR
         body: rendered.body,
         status: input.status,
         origin: "ai",
-        // `articles.category` is deliberately left unset. The agents' category
-        // (person/place/event/concept) is a STRUCTURAL classification that picks
-        // the Writing Agent's section template — it is not the site's subject
-        // taxonomy, which was people/places/history/religion_and_culture/…
-        // Writing one into the other would quietly redefine the column. The
-        // agent's value is kept on the topic row instead.
+        // The category the Research Agent resolved (person/place/event/concept),
+        // stored lowercase — which is exactly what the site's `.hp-chip` expects
+        // and title-cases for display, so the stored value is never rewritten.
+        // It also picks the Writing Agent's section template, so it is already
+        // guaranteed to be one of those four: the bundle falls back to "concept"
+        // and QA carries the original through unchanged.
+        category: input.article.category,
         // No user created this; `createdBy` is nullable.
         createdBy: null,
         publishedAt: input.status === "published" ? new Date() : null,

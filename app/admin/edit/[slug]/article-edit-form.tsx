@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { updateArticle } from "../../actions";
+import { ARTICLE_CATEGORIES, categoryLabel } from "@/lib/article-categories";
 
 type Ref = { url: string; title: string; source: string };
 
@@ -16,6 +17,8 @@ type Props = {
     summaryHe: string;
     bodyHe: string;
     status: string;
+    /** "" when the article has none — an AI article carries what Research picked. */
+    category: string;
   };
   initialRefs: Ref[];
 };
@@ -130,13 +133,35 @@ export default function ArticleEditForm({ article, initialRefs }: Props) {
       <section className="flex flex-col gap-5">
         <SectionHeading>Metadata</SectionHeading>
 
-        <div>
-          <label htmlFor="status" className="field-label">Status</label>
-          <select id="status" name="status" defaultValue={article.status} className="select max-w-xs">
-            <option value="draft">Draft</option>
-            <option value="review">Review</option>
-            <option value="published">Published</option>
-          </select>
+        <div className="flex flex-col gap-5 sm:flex-row sm:gap-6">
+          <div className="sm:w-56">
+            <label htmlFor="status" className="field-label">Status</label>
+            <select id="status" name="status" defaultValue={article.status} className="select">
+              <option value="draft">Draft</option>
+              <option value="review">Review</option>
+              <option value="published">Published</option>
+            </select>
+          </div>
+
+          <div className="sm:w-56">
+            <label htmlFor="category" className="field-label">
+              Category <span className="field-hint">(the chip on article cards)</span>
+            </label>
+            {/* On an AI article this shows what the Research Agent resolved, and
+                changing it here overrides that. A re-run of the same topic
+                rewrites it, since the pipeline owns the value it produces. */}
+            <select
+              id="category"
+              name="category"
+              defaultValue={article.category}
+              className="select"
+            >
+              <option value="">— None —</option>
+              {ARTICLE_CATEGORIES.map((c) => (
+                <option key={c} value={c}>{categoryLabel(c)}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div>
