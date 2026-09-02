@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import Wordmark from "./wordmark";
 import ThemeToggle from "./theme-toggle";
-import { IpLockup } from "./ip-logo";
+import { IsraelPediaLogo } from "./ip-logo";
 
 const SearchIcon = () => (
   <svg
@@ -246,7 +246,7 @@ function ArticleHeader({
     <header className="hp-header sticky top-0 z-40">
       <div className="ap-header-shell flex h-16 items-center gap-4">
         <Link href="/" className="ap-brand" aria-label="IsraelPedia — home">
-          <IpLockup markClassName="ap-brand-mark" />
+          <IsraelPediaLogo className="ap-brand-logo" label={null} />
         </Link>
 
         <BrandSearch className="ml-6 hidden min-w-0 flex-1 md:block lg:ml-10" />

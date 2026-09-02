@@ -2,7 +2,7 @@ import { db } from "@/db";
 import { articles } from "@/db/schema";
 import { eq, desc, sql } from "drizzle-orm";
 import ArticleGrid from "@/components/article-grid";
-import { IpLockup } from "@/components/ip-logo";
+import { IsraelPediaLogo } from "@/components/ip-logo";
 import { fetchMoreArticles } from "@/app/actions/articles";
 
 // Two rows of three, matching the grid the design is built around.
@@ -46,7 +46,7 @@ export default async function Home() {
 
           <div className="flex flex-col items-center pb-24 pt-14 text-center sm:pb-32 sm:pt-20">
             <h1 className="hp-wordmark">
-              <IpLockup />
+              <IsraelPediaLogo className="hp-wordmark-logo" />
             </h1>
             <p className="hp-tagline mt-3">
               The online encyclopedia of Israel &amp; the Jewish people

@@ -23,6 +23,10 @@
   --on-brand: #f8fafc;    /* text on techelet/azure fills              */
   --ring: #1f5fa6;
   --shadow: 27 59 107;    /* techelet rgb, for soft shadows            */
+
+  /* The logo's own blue, taken straight from the artwork. It is the mark's
+     identity rather than a theme colour, so it does not follow the palette. */
+  --logo-ink: #0010a1;
 }
 
 .dark {
@@ -40,6 +44,10 @@
   --on-brand: #f8fafc;
   --ring: #6aa6e0;
   --shadow: 0 0 0;
+
+  /* Same hue as the artwork, lifted in lightness — #0010a1 all but
+     disappears against a dark surface. */
+  --logo-ink: #98a3ff;
 }
 
 @theme inline {
@@ -137,6 +145,25 @@
 /*  Components — reusable, consistent primitives                       */
 /* ------------------------------------------------------------------ */
 @layer components {
+  /* The logo as a home link, for the headers outside the .hp- palette. */
+  .ip-wordmark {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    line-height: 0;
+    color: var(--logo-ink);
+    transition: opacity 0.15s ease;
+  }
+  .ip-wordmark:hover {
+    opacity: 0.78;
+  }
+  .ip-wordmark-logo {
+    display: block;
+    height: clamp(0.875rem, 3.4vw, 1.125rem);
+    width: auto;
+    aspect-ratio: 10297 / 1000;
+  }
+
   /* Eyebrow / category label — small-caps utility */
   .eyebrow {
     @apply inline-flex items-center gap-2 text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-brass;
@@ -655,24 +682,18 @@
 
   /* The wordmark — the loudest thing on the page. Heavy italic, letter-
      spaced, with the flag set as a character between the two halves. */
+  /* The hero logo. It is one image rather than type, so it is sized by
+     width and lets its own aspect ratio set the height. */
   .hp-wordmark {
-    font-family: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
-    font-style: italic;
-    font-weight: 800;
-    color: var(--hp-indigo);
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
-    line-height: 1;
-    font-size: clamp(2.1rem, 6.2vw, 3.25rem);
+    display: block;
+    color: var(--logo-ink);
+    line-height: 0;
   }
-  .hp-wordmark-mark {
-    display: inline-block;
-    height: 0.92em;
-    width: auto;
-    margin-inline: 0.14em;
-    /* Nudged so the book's foot sits on the baseline of the letters
-       rather than hanging below it. */
-    vertical-align: -0.1em;
+  .hp-wordmark-logo {
+    display: block;
+    width: clamp(15rem, 78vw, 30rem);
+    height: auto;
+    aspect-ratio: 10297 / 1000;
   }
 
   .hp-tagline {
@@ -1282,26 +1303,20 @@
     display: inline-flex;
     align-items: center;
     flex: none;
-    font-family: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
-    font-style: italic;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
-    line-height: 1;
-    font-size: 1.0625rem;
-    color: var(--hp-indigo);
-    white-space: nowrap;
+    line-height: 0;
+    color: var(--logo-ink);
     transition: opacity 0.15s ease;
   }
   .ap-brand:hover {
     opacity: 0.78;
   }
-  .ap-brand-mark {
-    display: inline-block;
-    height: 1.05em;
+  .ap-brand-logo {
+    display: block;
+    /* Sized by height so it sits on the same optical line as the nav, and
+       kept small enough on a phone to leave room for the controls. */
+    height: clamp(0.875rem, 3.4vw, 1.125rem);
     width: auto;
-    margin-inline: 0.16em;
-    vertical-align: -0.12em;
+    aspect-ratio: 10297 / 1000;
   }
 
   /* The article header runs wider than the article body, so the logo sits
